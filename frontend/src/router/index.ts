@@ -1,0 +1,39 @@
+import { createRouter, createWebHistory } from 'vue-router'
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    {
+      path: '/',
+      component: () => import('@/layouts/BasicLayout.vue'),
+      redirect: '/codegen',
+      children: [
+        {
+          path: 'codegen',
+          name: 'CodeGen',
+          component: () => import('@/views/codegen/CodeGenView.vue'),
+          meta: { title: '代码生成' },
+        },
+        {
+          path: 'app',
+          name: 'AppManage',
+          component: () => import('@/views/app/AppManageView.vue'),
+          meta: { title: '应用管理' },
+        },
+        {
+          path: 'user',
+          name: 'UserManage',
+          component: () => import('@/views/user/UserManageView.vue'),
+          meta: { title: '用户管理' },
+        },
+      ],
+    },
+  ],
+})
+
+router.beforeEach((to, _from, next) => {
+  document.title = `${to.meta.title || 'AI 代码生成平台'} - AI Agent Platform`
+  next()
+})
+
+export default router
