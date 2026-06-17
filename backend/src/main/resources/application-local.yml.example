@@ -1,14 +1,10 @@
-# 本地配置示例：复制此文件为 application-local.yml 并填入真实值
+# 可选：本机配置与团队默认不一致时使用（不会提交到 Git）
+# 复制此文件为 application-local.yml，仅覆盖需要修改的项
 
 spring:
   datasource:
     username: root
-    password: 123456
-
-  data:
-    redis:
-      host: localhost
-      port: 6379
+    password: 你的MySQL密码
 
 langchain4j:
   open-ai:

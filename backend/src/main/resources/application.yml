@@ -4,14 +4,10 @@ server:
 spring:
   application:
     name: ai-agent-platform
+  profiles:
+    active: dev
   config:
     import: optional:classpath:application-local.yml
-
-  datasource:
-    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:ai_agent_platform}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
 
   jpa:
     hibernate:
@@ -22,17 +18,11 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
 
-  data:
-    redis:
-      host: localhost
-      port: 6379
-      database: 0
-
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
 
-# LangChain4j 配置（请替换为你的 API Key）
+# LangChain4j 配置（API Key 可在 application-local.yml 中覆盖）
 langchain4j:
   open-ai:
     chat-model:

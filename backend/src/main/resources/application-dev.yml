@@ -1,0 +1,15 @@
+# 团队开发环境配置（提交到 Git，组员 clone 后可直接使用）
+# 如本机 MySQL 密码不同，可复制 application-local.yml.example 为 application-local.yml 覆盖
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/ai_agent_platform?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0

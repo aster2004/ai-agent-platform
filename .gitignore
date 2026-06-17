@@ -36,5 +36,5 @@ build/
 frontend/node_modules/
 frontend/dist/
 
-### Local config (contains secrets) ###
+### Local override (optional, for personal API keys / different DB password) ###
 backend/src/main/resources/application-local.yml
