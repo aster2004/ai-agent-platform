@@ -54,7 +54,11 @@ public class UserController {
     @Operation(summary = "用户列表（管理员）")
     @GetMapping("/admin/list")
     public Result<Page<UserVO>> list(@RequestParam(defaultValue = "0") int page,
-                                     @RequestParam(defaultValue = "10") int size) {
+                                     @RequestParam(defaultValue = "10") int size,
+                                     @RequestParam(required = false) String keyword) {
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            return Result.success(userService.searchByUsername(keyword.trim(), page, size));
+        }
         return Result.success(userService.list(page, size));
     }
 

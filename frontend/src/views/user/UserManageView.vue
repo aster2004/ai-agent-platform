@@ -1,6 +1,9 @@
-﻿﻿﻿﻿<template>
+﻿﻿﻿﻿﻿﻿<template>
   <div class="user-manage-page">
     <a-card title="用户管理" class="user-card">
+      <div class="search-bar" style="margin-bottom: 16px;">
+        <a-input-search v-model:value="searchKeyword" placeholder="按用户名搜索" style="width: 300px;" @search="handleSearch" />
+      </div>
       <a-table :columns="columns" :data-source="dataSource" :pagination="pagination" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'avatar'">
@@ -59,6 +62,7 @@ const columns = [
 
 const dataSource = ref<UserVO[]>([])
 const pagination = ref({ current: 1, pageSize: 10, total: 0 })
+const searchKeyword = ref('')
 
 onMounted(() => {
   loadUserList()
@@ -66,12 +70,24 @@ onMounted(() => {
 
 async function loadUserList() {
   try {
-    const res = await getUserList({ page: pagination.value.current - 1, size: pagination.value.pageSize })
+    const params: { page: number; size: number; keyword?: string } = {
+      page: pagination.value.current - 1,
+      size: pagination.value.pageSize
+    }
+    if (searchKeyword.value.trim()) {
+      params.keyword = searchKeyword.value.trim()
+    }
+    const res = await getUserList(params)
     dataSource.value = res.data.content
     pagination.value.total = res.data.totalElements
   } catch (e: any) {
     message.error(e.message || '加载用户列表失败')
   }
+}
+
+function handleSearch() {
+  pagination.value.current = 1
+  loadUserList()
 }
 
 function handleTableChange(paginationInfo: { current: number; pageSize: number }) {

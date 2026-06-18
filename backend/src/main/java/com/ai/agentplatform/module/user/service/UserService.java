@@ -98,6 +98,11 @@ public class UserService {
                 .map(UserVO::from);
     }
 
+    public Page<UserVO> searchByUsername(String username, int page, int size) {
+        return userRepository.findByUsernameContainingIgnoreCase(username, PageRequest.of(page, size))
+                .map(UserVO::from);
+    }
+
     @Transactional
     public void updateStatus(Long id, String status) {
         User user = userRepository.findById(id)
