@@ -1,0 +1,13 @@
+package com.ai.agentplatform.module.app.deploy.vo;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
+@Data
+@AllArgsConstructor
+public class DeployResultVO {
+
+    private Long appId;
+    private String deployUrl;
+    private String message;
+}
