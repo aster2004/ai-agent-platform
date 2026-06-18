@@ -31,13 +31,26 @@ public class UserService {
     @Transactional
     public UserVO register(UserRegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new BusinessException("用户名已存在");
+            throw new BusinessException("用户名已被注册");
+        }
+        boolean hasPhone = request.getPhone() != null && !request.getPhone().isEmpty();
+        boolean hasEmail = request.getEmail() != null && !request.getEmail().isEmpty();
+        if (!hasPhone && !hasEmail) {
+            throw new BusinessException("请输入手机号或邮箱");
+        }
+        if (hasPhone && userRepository.existsByPhone(request.getPhone())) {
+            throw new BusinessException("手机号已被注册");
+        }
+        if (hasEmail && userRepository.existsByEmail(request.getEmail())) {
+            throw new BusinessException("邮箱已被注册");
         }
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setNickname(request.getNickname());
         user.setAvatar(request.getAvatar());
+        user.setPhone(request.getPhone());
+        user.setEmail(request.getEmail());
         user.setRole("user");
         user.setStatus("normal");
         user.setPoints(0);
@@ -46,7 +59,10 @@ public class UserService {
     }
 
     public LoginVO login(UserLoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        String loginId = request.getUsername();
+        User user = userRepository.findByUsername(loginId)
+                .or(() -> userRepository.findByPhone(loginId))
+                .or(() -> userRepository.findByEmail(loginId))
                 .orElseThrow(() -> new BusinessException("用户名或密码错误"));
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException("用户名或密码错误");
@@ -59,6 +75,8 @@ public class UserService {
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
         vo.setAvatar(user.getAvatar());
+        vo.setPhone(user.getPhone());
+        vo.setEmail(user.getEmail());
         vo.setRole(user.getRole());
         vo.setPoints(user.getPoints());
         vo.setLevel(user.getLevel());
@@ -86,6 +104,28 @@ public class UserService {
                 .orElseThrow(() -> new BusinessException("用户不存在"));
         user.setStatus(status);
         userRepository.save(user);
+    }
+
+    @Transactional
+    public UserVO updateProfile(Long id, String nickname, String phone, String email) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new BusinessException("用户不存在"));
+        if (nickname != null) {
+            user.setNickname(nickname);
+        }
+        if (phone != null) {
+            if (!phone.equals(user.getPhone()) && userRepository.existsByPhone(phone)) {
+                throw new BusinessException("手机号已被使用");
+            }
+            user.setPhone(phone);
+        }
+        if (email != null) {
+            if (!email.equals(user.getEmail()) && userRepository.existsByEmail(email)) {
+                throw new BusinessException("邮箱已被使用");
+            }
+            user.setEmail(email);
+        }
+        return UserVO.from(userRepository.save(user));
     }
 
     @Transactional

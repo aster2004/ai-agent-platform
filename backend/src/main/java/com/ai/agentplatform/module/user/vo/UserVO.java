@@ -12,6 +12,8 @@ public class UserVO {
     private String username;
     private String nickname;
     private String avatar;
+    private String phone;
+    private String email;
     private String role;
     private String status;
     private Integer points;
@@ -25,6 +27,8 @@ public class UserVO {
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
         vo.setAvatar(user.getAvatar());
+        vo.setPhone(user.getPhone());
+        vo.setEmail(user.getEmail());
         vo.setRole(user.getRole());
         vo.setStatus(user.getStatus());
         vo.setPoints(user.getPoints());

@@ -1,9 +1,9 @@
-<template>
+﻿<template>
   <div class="login-page">
     <a-card title="登录" class="login-card">
       <a-form :model="form" @finish="handleLogin">
-        <a-form-item name="username" :rules="[{ required: true, message: '请输入用户名' }]">
-          <a-input v-model:value="form.username" placeholder="用户名" size="large">
+        <a-form-item name="username" :rules="[{ required: true, message: '请输入手机号、邮箱或用户名' }]">
+          <a-input v-model:value="form.username" placeholder="手机号、邮箱或用户名" size="large">
             <template #prefix><UserOutlined /></template>
           </a-input>
         </a-form-item>

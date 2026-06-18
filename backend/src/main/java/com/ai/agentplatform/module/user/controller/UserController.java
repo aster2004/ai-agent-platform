@@ -3,6 +3,7 @@ package com.ai.agentplatform.module.user.controller;
 import com.ai.agentplatform.common.result.Result;
 import com.ai.agentplatform.module.user.config.JwtUtil;
 import com.ai.agentplatform.module.user.dto.UserLoginRequest;
+import com.ai.agentplatform.module.user.dto.UserProfileRequest;
 import com.ai.agentplatform.module.user.dto.UserRegisterRequest;
 import com.ai.agentplatform.module.user.service.UserService;
 import com.ai.agentplatform.module.user.vo.LoginVO;
@@ -76,6 +77,15 @@ public class UserController {
     public Result<Void> delete(@PathVariable Long id) {
         userService.delete(id);
         return Result.success();
+    }
+
+    @Operation(summary = "更新个人信息")
+    @PutMapping("/profile")
+    public Result<UserVO> updateProfile(@RequestBody UserProfileRequest request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        System.out.println("updateProfile - userId: " + userId + ", nickname: " + request.getNickname() + ", phone: " + request.getPhone() + ", email: " + request.getEmail());
+        return Result.success(userService.updateProfile(userId, request.getNickname(), request.getPhone(), request.getEmail()));
     }
 
     @Operation(summary = "上传头像")
