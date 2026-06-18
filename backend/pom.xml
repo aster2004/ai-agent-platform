@@ -99,6 +99,13 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!-- 成员3 P2：封面截图（默认关闭，需 Chrome + ChromeDriver） -->
+		<dependency>
+			<groupId>org.seleniumhq.selenium</groupId>
+			<artifactId>selenium-java</artifactId>
+			<version>4.27.0</version>
+		</dependency>
+
 		<!-- Test -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
