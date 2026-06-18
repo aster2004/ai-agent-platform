@@ -5,6 +5,7 @@ import com.ai.agentplatform.module.user.config.JwtUtil;
 import com.ai.agentplatform.module.user.dto.UserLoginRequest;
 import com.ai.agentplatform.module.user.dto.UserProfileRequest;
 import com.ai.agentplatform.module.user.dto.UserRegisterRequest;
+import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 import com.ai.agentplatform.module.user.service.UserService;
 import com.ai.agentplatform.module.user.vo.LoginVO;
 import com.ai.agentplatform.module.user.vo.UserVO;
@@ -28,6 +29,7 @@ public class UserController {
 
     private final UserService userService;
     private final JwtUtil jwtUtil;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Operation(summary = "用户注册")
     @PostMapping("/register")
@@ -49,6 +51,17 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         Long userId = (Long) authentication.getPrincipal();
         return Result.success(userService.getById(userId));
+    }
+
+    @Operation(summary = "用户注销")
+    @PostMapping("/logout")
+    public Result<Void> logout(@RequestHeader("Authorization") String authorization) {
+        if (authorization != null && authorization.startsWith("Bearer ")) {
+            String token = authorization.substring(7);
+            tokenBlacklistService.blacklist(token);
+            System.out.println("logout - token blacklisted");
+        }
+        return Result.success();
     }
 
     @Operation(summary = "用户列表（管理员）")

@@ -21,13 +21,14 @@ import java.util.Collections;
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
+    private final TokenBlacklistService tokenBlacklistService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         try {
             String token = extractToken(request);
-            if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token)) {
+            if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token) && !tokenBlacklistService.isBlacklisted(token)) {
                 Long userId = jwtUtil.getUserIdFromToken(token);
                 String role = jwtUtil.getRoleFromToken(token);
                 UsernamePasswordAuthenticationToken authentication =
