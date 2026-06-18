@@ -8,6 +8,7 @@ public class LoginVO {
     private Long userId;
     private String username;
     private String nickname;
+    private String avatar;
     private String role;
     private Integer points;
     private String level;

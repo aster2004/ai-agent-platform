@@ -1,8 +1,11 @@
-﻿﻿<template>
+﻿﻿﻿﻿<template>
   <div class="user-manage-page">
     <a-card title="用户管理" class="user-card">
       <a-table :columns="columns" :data-source="dataSource" :pagination="pagination" @change="handleTableChange">
         <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'avatar'">
+            <a-avatar :size="40" :src="record.avatar" />
+          </template>
           <template v-if="column.key === 'status'">
             <a-tag :color="record.status === 'normal' ? 'success' : 'error'">
               {{ record.status === 'normal' ? '正常' : '禁用' }}
@@ -43,6 +46,7 @@ import { getUserList, disableUser, enableUser, deleteUser } from '@/api/user'
 
 const columns = [
   { title: 'ID', dataIndex: 'id', key: 'id' },
+  { title: '头像', dataIndex: 'avatar', key: 'avatar', width: 80 },
   { title: '用户名', dataIndex: 'username', key: 'username' },
   { title: '昵称', dataIndex: 'nickname', key: 'nickname' },
   { title: '角色', dataIndex: 'role', key: 'role' },

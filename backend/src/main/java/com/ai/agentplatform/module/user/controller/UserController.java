@@ -12,9 +12,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @Tag(name = "用户管理")
 @RestController
@@ -73,5 +76,32 @@ public class UserController {
     public Result<Void> delete(@PathVariable Long id) {
         userService.delete(id);
         return Result.success();
+    }
+
+    @Operation(summary = "上传头像")
+    @PostMapping("/avatar/upload")
+    public Result<String> uploadAvatar(@RequestParam("file") MultipartFile file) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        String avatarUrl = userService.uploadAvatar(userId, file);
+        return Result.success(avatarUrl);
+    }
+
+    @Operation(summary = "获取头像")
+    @GetMapping("/avatar/{filename}")
+    public ResponseEntity<byte[]> getAvatar(@PathVariable String filename) {
+        byte[] content = userService.getAvatar(filename);
+        if (content == null) {
+            return ResponseEntity.notFound().build();
+        }
+        String contentType = MediaType.IMAGE_JPEG_VALUE;
+        if (filename.toLowerCase().endsWith(".png")) {
+            contentType = MediaType.IMAGE_PNG_VALUE;
+        } else if (filename.toLowerCase().endsWith(".gif")) {
+            contentType = MediaType.IMAGE_GIF_VALUE;
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(content);
     }
 }

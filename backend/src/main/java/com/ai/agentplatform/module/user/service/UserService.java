@@ -13,6 +13,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -51,6 +58,7 @@ public class UserService {
         vo.setUserId(user.getId());
         vo.setUsername(user.getUsername());
         vo.setNickname(user.getNickname());
+        vo.setAvatar(user.getAvatar());
         vo.setRole(user.getRole());
         vo.setPoints(user.getPoints());
         vo.setLevel(user.getLevel());
@@ -86,5 +94,47 @@ public class UserService {
             throw new BusinessException("用户不存在");
         }
         userRepository.deleteById(id);
+    }
+
+    @Transactional
+    public String uploadAvatar(Long userId, MultipartFile file) {
+        if (file.isEmpty()) {
+            throw new BusinessException("请选择图片文件");
+        }
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || !originalFilename.matches(".*\\.(jpg|jpeg|png|gif)$")) {
+            throw new BusinessException("只支持jpg、jpeg、png、gif格式的图片");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("用户不存在"));
+        try {
+            String uploadDir = "uploads/avatar";
+            Path path = Paths.get(uploadDir);
+            if (!Files.exists(path)) {
+                Files.createDirectories(path);
+            }
+            String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            String newFilename = UUID.randomUUID().toString() + extension;
+            Path filePath = path.resolve(newFilename);
+            Files.write(filePath, file.getBytes());
+            String avatarUrl = "/api/user/avatar/" + newFilename;
+            user.setAvatar(avatarUrl);
+            userRepository.save(user);
+            return avatarUrl;
+        } catch (IOException e) {
+            throw new BusinessException("上传失败");
+        }
+    }
+
+    public byte[] getAvatar(String filename) {
+        try {
+            Path filePath = Paths.get("uploads/avatar", filename);
+            if (Files.exists(filePath)) {
+                return Files.readAllBytes(filePath);
+            }
+            return null;
+        } catch (IOException e) {
+            return null;
+        }
     }
 }
