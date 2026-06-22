@@ -19,8 +19,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, BindException.class})
     public Result<Void> handleValidationException(Exception e) {
         String message = "参数校验失败";
-        if (e instanceof MethodArgumentNotValidException ex && ex.getBindingResult().hasFieldErrors()) {
-            message = ex.getBindingResult().getFieldError().getDefaultMessage();
+        if (e instanceof MethodArgumentNotValidException) {
+            MethodArgumentNotValidException ex = (MethodArgumentNotValidException) e;
+            if (ex.getBindingResult().hasFieldErrors()) {
+                message = ex.getBindingResult().getFieldError().getDefaultMessage();
+            }
         }
         return Result.fail(400, message);
     }

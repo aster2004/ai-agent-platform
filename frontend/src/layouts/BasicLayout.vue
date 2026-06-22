@@ -17,24 +17,42 @@
             <AppstoreOutlined />
             应用管理
           </a-menu-item>
-          <a-menu-item key="/user">
+          <a-menu-item key="/app/gallery">
+            <StarOutlined />
+            精选广场
+          </a-menu-item>
+          <a-menu-item v-if="userStore.isAdmin()" key="/user">
             <UserOutlined />
             用户管理
           </a-menu-item>
         </a-menu>
       </div>
       <div class="header-right">
-        <template v-if="isLoggedIn">
-          <a-avatar :size="32" class="user-avatar">
-            <template #icon><UserOutlined /></template>
-          </a-avatar>
-          <span class="username">{{ username }}</span>
-          <a-button type="link" @click="handleLogout">退出</a-button>
-        </template>
+        <a-dropdown v-if="userStore.isLoggedIn()">
+          <a-space class="user-info">
+            <a-avatar :size="32" :src="userStore.avatar" class="user-avatar">
+              <template #icon><UserOutlined /></template>
+            </a-avatar>
+            <span class="username">{{ displayName }}</span>
+            <a-tag v-if="userStore.isAdmin()" color="gold">管理员</a-tag>
+          </a-space>
+          <template #overlay>
+            <a-menu @click="handleUserMenuClick">
+              <a-menu-item key="profile">
+                <UserOutlined />
+                个人信息
+              </a-menu-item>
+              <a-menu-divider />
+              <a-menu-item key="logout">
+                <LogoutOutlined />
+                退出登录
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <template v-else>
-          <a-button type="text" class="login-btn" @click="handleLogin">
-            <UserOutlined />
-            <span>登录</span>
+          <a-button type="primary" class="login-btn" @click="goLogin">
+            登录
           </a-button>
         </template>
       </div>
@@ -46,18 +64,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { CodeOutlined, AppstoreOutlined, UserOutlined } from '@ant-design/icons-vue'
+import {
+  AppstoreOutlined,
+  CodeOutlined,
+  StarOutlined,
+  UserOutlined,
+  LogoutOutlined,
+} from '@ant-design/icons-vue'
+import { useUserStore } from '@/stores/user'
+import { logout as logoutApi } from '@/api/user'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 const selectedKeys = ref<string[]>([route.path])
 
-// 静态登录状态，后续接入真实登录逻辑
-const isLoggedIn = ref(false)
-const username = ref('演示用户')
+const displayName = computed(() => userStore.nickname || userStore.username || '用户')
 
 watch(() => route.path, (path) => {
   selectedKeys.value = [path]
@@ -67,14 +92,23 @@ function handleMenuClick({ key }: { key: string }) {
   router.push(key)
 }
 
-function handleLogin() {
-  isLoggedIn.value = true
-  message.info('登录功能开发中，当前为静态演示')
+function goLogin() {
+  router.push('/login')
 }
 
-function handleLogout() {
-  isLoggedIn.value = false
-  message.info('退出功能开发中，当前为静态演示')
+async function handleUserMenuClick({ key }: { key: string }) {
+  if (key === 'profile') {
+    router.push('/profile')
+  } else if (key === 'logout') {
+    try {
+      await logoutApi()
+    } catch (e) {
+      // ignore
+    }
+    userStore.logout()
+    message.success('已退出登录')
+    router.push('/login')
+  }
 }
 </script>
 
@@ -123,6 +157,10 @@ function handleLogout() {
   align-items: center;
   gap: 8px;
   margin-left: 24px;
+}
+
+.user-info {
+  cursor: pointer;
 }
 
 .user-avatar {

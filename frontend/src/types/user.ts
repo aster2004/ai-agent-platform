@@ -23,4 +23,5 @@ export interface LoginVO {
   username: string
   nickname: string
   token: string
+  role?: 'user' | 'admin'
 }

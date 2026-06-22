@@ -1,5 +1,6 @@
 package com.ai.agentplatform.module.user.config;
 
+import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
