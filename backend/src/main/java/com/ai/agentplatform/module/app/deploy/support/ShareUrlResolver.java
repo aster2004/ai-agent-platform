@@ -30,23 +30,78 @@ public class ShareUrlResolver {
     private int serverPort;
 
     public String buildShareUrl(String path) {
-        String normalizedPath = path.startsWith("/") ? path : "/" + path;
-        return resolveBaseUrl() + normalizedPath;
+        String normalizedPath = normalizeToPath(path);
+        if (!StringUtils.hasText(normalizedPath)) {
+            return "";
+        }
+        return buildShareUrlWithPort(serverPort, normalizedPath);
+    }
+
+    public String buildShareUrl(DeployUrlCodec.DeployReference reference) {
+        if (reference == null || !StringUtils.hasText(reference.value())) {
+            return "";
+        }
+        return switch (reference.mode()) {
+            case LOCAL -> buildShareUrlWithPort(serverPort, reference.value());
+            case NGINX -> buildShareUrlWithPort(deployProperties.getNginxPort(), reference.value());
+            case DOCKER -> buildShareUrlWithPort(Integer.parseInt(reference.value()), "/");
+        };
+    }
+
+    public String buildShareUrlWithPort(int port, String path) {
+        String host = resolveHost();
+        String base = "http://" + host + ":" + port;
+        if (!StringUtils.hasText(path) || "/".equals(path)) {
+            return base + "/";
+        }
+        return base + (path.startsWith("/") ? path : "/" + path);
+    }
+
+    public String resolveHost() {
+        if (StringUtils.hasText(deployProperties.getShareHost())) {
+            return deployProperties.getShareHost().trim();
+        }
+        String lanIp = findBestLanIpv4();
+        if (lanIp != null) {
+            return lanIp;
+        }
+        try {
+            String host = InetAddress.getLocalHost().getHostAddress();
+            if (StringUtils.hasText(host) && !"127.0.0.1".equals(host)) {
+                return host;
+            }
+        } catch (Exception e) {
+            log.warn("获取本机地址失败", e);
+        }
+        return "localhost";
+    }
+
+    /** 将数据库中的完整 URL 或相对路径统一转为 /sites/... 形式 */
+    public String normalizeToPath(String urlOrPath) {
+        if (!StringUtils.hasText(urlOrPath)) {
+            return "";
+        }
+        String value = urlOrPath.trim();
+        if (value.startsWith("/")) {
+            return value;
+        }
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            try {
+                java.net.URI uri = java.net.URI.create(value);
+                String path = uri.getPath();
+                return StringUtils.hasText(path) ? path : "/";
+            } catch (IllegalArgumentException e) {
+                log.warn("无法解析分享路径: {}", urlOrPath);
+            }
+        }
+        return value.startsWith("/") ? value : "/" + value;
     }
 
     public String resolveBaseUrl() {
         if (StringUtils.hasText(deployProperties.getPublicBaseUrl())) {
             return trimTrailingSlash(deployProperties.getPublicBaseUrl().trim());
         }
-        if (StringUtils.hasText(deployProperties.getShareHost())) {
-            return "http://" + deployProperties.getShareHost().trim() + ":" + serverPort;
-        }
-        String lanIp = findBestLanIpv4();
-        if (lanIp != null) {
-            log.info("分享链接使用局域网 IP: {}", lanIp);
-            return "http://" + lanIp + ":" + serverPort;
-        }
-        return "http://localhost:" + serverPort;
+        return buildShareUrlWithPort(serverPort, "").replaceAll("/$", "");
     }
 
     private String findBestLanIpv4() {

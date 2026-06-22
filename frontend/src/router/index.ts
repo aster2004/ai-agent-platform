@@ -35,6 +35,18 @@ const router = createRouter({
           meta: { title: '应用管理' },
         },
         {
+          path: 'app/deploy',
+          name: 'AppDeployHome',
+          component: () => import('@/views/app/deploy/AppDeployView.vue'),
+          meta: { title: '部署分享' },
+        },
+        {
+          path: 'app/:id/deploy',
+          name: 'AppDeploy',
+          component: () => import('@/views/app/deploy/AppDeployView.vue'),
+          meta: { title: '部署分享' },
+        },
+        {
           path: 'app/gallery',
           name: 'AppGallery',
           component: () => import('@/views/app/AppGalleryView.vue'),

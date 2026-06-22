@@ -15,6 +15,7 @@
             <a-select-option :value="0">未精选</a-select-option>
           </a-select>
         </template>
+        <a-button @click="goDeploy()">部署分享</a-button>
         <a-button type="primary" @click="openCreateModal">新建应用</a-button>
       </a-space>
     </div>
@@ -46,6 +47,7 @@
         </template>
         <template v-else-if="column.key === 'action'">
           <a-space>
+            <a-button type="link" size="small" @click="goDeploy(record.id)">部署分享</a-button>
             <template v-if="canManageApp(record)">
               <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
               <a-popconfirm
@@ -134,6 +136,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import type { UploadProps } from 'ant-design-vue'
 import { LoadingOutlined, PlusOutlined } from '@ant-design/icons-vue'
@@ -150,8 +153,13 @@ import {
 import { useUserStore } from '@/stores/user'
 import type { AppVO } from '@/types/app'
 
+const router = useRouter()
 const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin())
+
+function goDeploy(id?: number) {
+  router.push(id ? `/app/${id}/deploy` : '/app/deploy')
+}
 
 const loading = ref(false)
 const modalLoading = ref(false)
@@ -193,7 +201,7 @@ const columns = computed(() => {
   }
   base.push(
     { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
-    { title: '操作', key: 'action', width: isAdmin.value ? 200 : 140 },
+    { title: '操作', key: 'action', width: isAdmin.value ? 260 : 200 },
   )
   return base
 })

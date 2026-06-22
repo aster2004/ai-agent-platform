@@ -72,7 +72,11 @@ public class AppCodeFileService {
     }
 
     public void writeFiles(Long appId, String subDir, List<AppCodeFile> files) throws IOException {
-        Path targetDir = deployPathResolver.resolve(subDir, String.valueOf(appId));
+        writeToDirectory(deployPathResolver.resolve(subDir, String.valueOf(appId)), files);
+    }
+
+    public void writeToDirectory(Path targetDir, List<AppCodeFile> files) throws IOException {
+        targetDir = targetDir.toAbsolutePath().normalize();
         if (Files.exists(targetDir)) {
             deleteRecursively(targetDir);
         }
@@ -84,8 +88,74 @@ public class AppCodeFileService {
                 throw new IllegalArgumentException("非法文件路径: " + relativePath);
             }
             Files.createDirectories(filePath.getParent());
-            Files.writeString(filePath, file.getContent() != null ? file.getContent() : "", StandardCharsets.UTF_8);
+            String content = file.getContent() != null ? file.getContent() : "";
+            if (relativePath.toLowerCase().endsWith(".html") || relativePath.toLowerCase().endsWith(".htm")) {
+                content = ensureUtf8HtmlDocument(content);
+            }
+            Files.writeString(filePath, content, StandardCharsets.UTF_8);
         }
+    }
+
+    /**
+     * AI 生成的 app_code 常为 HTML 片段且无 charset，在 Windows 下会被浏览器按 GBK 解析导致乱码。
+     */
+    private String ensureUtf8HtmlDocument(String content) {
+        if (!StringUtils.hasText(content)) {
+            return DEFAULT_HTML;
+        }
+        String trimmed = content.trim();
+        String lower = trimmed.toLowerCase();
+        boolean hasHtmlTag = lower.contains("<html");
+        boolean hasCharset = lower.contains("charset=\"utf-8\"")
+                || lower.contains("charset='utf-8'")
+                || lower.contains("charset=utf-8");
+
+        if (hasHtmlTag && hasCharset) {
+            return content;
+        }
+        if (hasHtmlTag) {
+            return injectCharsetMeta(content);
+        }
+        return wrapHtmlFragment(content);
+    }
+
+    private String injectCharsetMeta(String html) {
+        String lower = html.toLowerCase();
+        int headIdx = lower.indexOf("<head");
+        if (headIdx >= 0) {
+            int headEnd = lower.indexOf('>', headIdx);
+            if (headEnd >= 0) {
+                return html.substring(0, headEnd + 1)
+                        + "\n  <meta charset=\"UTF-8\"/>"
+                        + html.substring(headEnd + 1);
+            }
+        }
+        int htmlIdx = lower.indexOf("<html");
+        if (htmlIdx >= 0) {
+            int htmlEnd = lower.indexOf('>', htmlIdx);
+            if (htmlEnd >= 0) {
+                return html.substring(0, htmlEnd + 1)
+                        + "\n<head><meta charset=\"UTF-8\"/></head>"
+                        + html.substring(htmlEnd + 1);
+            }
+        }
+        return wrapHtmlFragment(html);
+    }
+
+    private String wrapHtmlFragment(String bodyContent) {
+        return """
+                <!DOCTYPE html>
+                <html lang="zh-CN">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+                  <title>App Preview</title>
+                </head>
+                <body>
+                %s
+                </body>
+                </html>
+                """.formatted(bodyContent);
     }
 
     public String buildPublicUrl(String path) {

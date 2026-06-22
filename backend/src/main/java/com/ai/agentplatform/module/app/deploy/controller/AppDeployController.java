@@ -2,14 +2,17 @@ package com.ai.agentplatform.module.app.deploy.controller;
 
 import com.ai.agentplatform.common.exception.BusinessException;
 import com.ai.agentplatform.common.result.Result;
+import com.ai.agentplatform.module.app.deploy.dto.DeployRequest;
 import com.ai.agentplatform.module.app.deploy.service.AppDeployService;
 import com.ai.agentplatform.module.app.deploy.service.AppDownloadService;
 import com.ai.agentplatform.module.app.deploy.service.AppPreviewService;
 import com.ai.agentplatform.module.app.deploy.service.CoverScreenshotService;
+import com.ai.agentplatform.module.app.deploy.vo.DeployModeVO;
 import com.ai.agentplatform.module.app.deploy.vo.DeployResultVO;
 import com.ai.agentplatform.module.app.deploy.vo.PreviewVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.Resource;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @Tag(name = "应用部署分享", description = "成员3：预览、部署、下载、封面截图")
 @RestController
@@ -50,16 +54,25 @@ public class AppDeployController {
                 .body(resource);
     }
 
-    @Operation(summary = "一键部署", description = "部署到本地 sites 目录并写入 deploy_url")
+    @Operation(summary = "获取支持的部署方式")
+    @GetMapping("/deploy/modes")
+    public Result<List<DeployModeVO>> deployModes() {
+        return Result.success(appDeployService.listDeployModes());
+    }
+
+    @Operation(summary = "一键部署", description = "支持 local / nginx / docker 三种方式")
     @PostMapping("/{id}/deploy")
-    public Result<DeployResultVO> deploy(@PathVariable Long id) throws IOException {
-        return Result.success(appDeployService.deploy(id));
+    public Result<DeployResultVO> deploy(@PathVariable Long id,
+                                         @RequestBody(required = false) @Valid DeployRequest request)
+            throws IOException, InterruptedException {
+        String mode = request != null && request.getMode() != null ? request.getMode() : "local";
+        return Result.success(appDeployService.deploy(id, mode));
     }
 
     @Operation(summary = "获取部署地址")
     @GetMapping("/{id}/deploy-url")
-    public Result<String> deployUrl(@PathVariable Long id) {
-        return Result.success(appDeployService.getDeployUrl(id));
+    public Result<DeployResultVO> deployUrl(@PathVariable Long id) {
+        return Result.success(appDeployService.getDeployInfo(id));
     }
 
     @Operation(summary = "生成封面截图", description = "P2 功能，需 app.deploy.screenshot-enabled=true")
