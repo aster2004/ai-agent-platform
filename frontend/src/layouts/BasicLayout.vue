@@ -21,34 +21,38 @@
             <StarOutlined />
             精选广场
           </a-menu-item>
-          <a-menu-item key="/user">
+          <a-menu-item v-if="userStore.isAdmin()" key="/user">
             <UserOutlined />
             用户管理
           </a-menu-item>
         </a-menu>
       </div>
       <div class="header-right">
-        <a-dropdown v-if="isLoggedIn">
+        <a-dropdown v-if="userStore.isLoggedIn()">
           <a-space class="user-info">
-            <a-avatar :size="32" class="user-avatar">
+            <a-avatar :size="32" :src="userStore.avatar" class="user-avatar">
               <template #icon><UserOutlined /></template>
             </a-avatar>
             <span class="username">{{ displayName }}</span>
             <a-tag v-if="userStore.isAdmin()" color="gold">管理员</a-tag>
           </a-space>
           <template #overlay>
-            <a-menu @click="handleRoleMenuClick">
-              <a-menu-item key="user">切换为普通用户</a-menu-item>
-              <a-menu-item key="admin">切换为管理员</a-menu-item>
+            <a-menu @click="handleUserMenuClick">
+              <a-menu-item key="profile">
+                <UserOutlined />
+                个人信息
+              </a-menu-item>
               <a-menu-divider />
-              <a-menu-item key="logout">退出登录</a-menu-item>
+              <a-menu-item key="logout">
+                <LogoutOutlined />
+                退出登录
+              </a-menu-item>
             </a-menu>
           </template>
         </a-dropdown>
         <template v-else>
-          <a-button type="text" class="login-btn" @click="handleLogin">
-            <UserOutlined />
-            <span>登录</span>
+          <a-button type="primary" class="login-btn" @click="goLogin">
+            登录
           </a-button>
         </template>
       </div>
@@ -68,16 +72,17 @@ import {
   CodeOutlined,
   StarOutlined,
   UserOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons-vue'
 import { useUserStore } from '@/stores/user'
+import { logout as logoutApi } from '@/api/user'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const selectedKeys = ref<string[]>([route.path])
 
-const isLoggedIn = computed(() => userStore.isLoggedIn() || !!userStore.username)
-const displayName = computed(() => userStore.nickname || userStore.username || '演示用户')
+const displayName = computed(() => userStore.nickname || userStore.username || '用户')
 
 watch(() => route.path, (path) => {
   selectedKeys.value = [path]
@@ -87,27 +92,23 @@ function handleMenuClick({ key }: { key: string }) {
   router.push(key)
 }
 
-function handleLogin() {
-  userStore.setUser({
-    userId: 1,
-    username: 'dev_user',
-    nickname: '开发测试用户',
-    token: 'mock-token',
-    role: 'user',
-  })
-  message.success('已登录为普通用户（演示）')
+function goLogin() {
+  router.push('/login')
 }
 
-function handleRoleMenuClick({ key }: { key: string }) {
-  if (key === 'logout') {
+async function handleUserMenuClick({ key }: { key: string }) {
+  if (key === 'profile') {
+    router.push('/profile')
+  } else if (key === 'logout') {
+    try {
+      await logoutApi()
+    } catch (e) {
+      // ignore
+    }
     userStore.logout()
-    message.info('已退出登录')
-    return
+    message.success('已退出登录')
+    router.push('/login')
   }
-
-  localStorage.setItem('role', key)
-  userStore.role = key as 'user' | 'admin'
-  message.success(key === 'admin' ? '已切换为管理员' : '已切换为普通用户')
 }
 </script>
 
