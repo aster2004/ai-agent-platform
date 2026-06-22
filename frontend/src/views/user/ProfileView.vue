@@ -25,8 +25,34 @@
                   <a-button type="primary" size="small" @click="startEditNickname">编辑</a-button>
                 </template>
             </a-descriptions-item>
-            <a-descriptions-item label="手机号">{{ phone || '-' }}</a-descriptions-item>
-            <a-descriptions-item label="邮箱">{{ email || '-' }}</a-descriptions-item>
+            <a-descriptions-item label="手机号">
+              <template v-if="editingPhone">
+                <a-input v-model:value="editPhone" placeholder="请输入手机号" style="width: 200px; margin-right: 8px;" />
+                <a-button type="primary" size="small" @click="savePhone">绑定</a-button>
+                <a-button size="small" @click="cancelEditPhone">取消</a-button>
+              </template>
+              <template v-else-if="phone">
+                <span>{{ phone }}</span>
+              </template>
+              <template v-else>
+                <span style="color: #999;">未绑定</span>
+                <a-button type="link" size="small" @click="startEditPhone">绑定</a-button>
+              </template>
+            </a-descriptions-item>
+            <a-descriptions-item label="邮箱">
+              <template v-if="editingEmail">
+                <a-input v-model:value="editEmail" placeholder="请输入邮箱" style="width: 200px; margin-right: 8px;" />
+                <a-button type="primary" size="small" @click="saveEmail">绑定</a-button>
+                <a-button size="small" @click="cancelEditEmail">取消</a-button>
+              </template>
+              <template v-else-if="email">
+                <span>{{ email }}</span>
+              </template>
+              <template v-else>
+                <span style="color: #999;">未绑定</span>
+                <a-button type="link" size="small" @click="startEditEmail">绑定</a-button>
+              </template>
+            </a-descriptions-item>
             <a-descriptions-item label="角色">{{ userStore.role === 'admin' ? '管理员' : '普通用户' }}</a-descriptions-item>
             <a-descriptions-item label="等级">
               <a-tag color="gold">{{ userStore.level }}</a-tag>
@@ -56,6 +82,10 @@ const editNickname = ref('')
 const nickname = ref(userStore.nickname || userStore.username)
 const phone = ref(userStore.phone)
 const email = ref(userStore.email)
+const editingPhone = ref(false)
+const editPhone = ref('')
+const editingEmail = ref(false)
+const editEmail = ref('')
 
 onMounted(async () => {
   try {
@@ -124,6 +154,62 @@ async function saveNickname() {
   } catch (e: any) {
     console.error('saveNickname error:', e)
     message.error(e.message || '更新失败')
+  }
+}
+
+function startEditPhone() {
+  editPhone.value = phone.value || ''
+  editingPhone.value = true
+}
+
+function cancelEditPhone() {
+  editingPhone.value = false
+}
+
+async function savePhone() {
+  if (!editPhone.value.trim()) {
+    message.warning('手机号不能为空')
+    return
+  }
+  try {
+    const res = await updateProfile({ phone: editPhone.value.trim() })
+    if (res && res.data) {
+      phone.value = res.data.phone || ''
+      userStore.updateProfile({ phone: res.data.phone || '' })
+    }
+    editingPhone.value = false
+    message.success('手机号绑定成功')
+  } catch (e: any) {
+    console.error('savePhone error:', e)
+    message.error(e.message || '绑定失败')
+  }
+}
+
+function startEditEmail() {
+  editEmail.value = email.value || ''
+  editingEmail.value = true
+}
+
+function cancelEditEmail() {
+  editingEmail.value = false
+}
+
+async function saveEmail() {
+  if (!editEmail.value.trim()) {
+    message.warning('邮箱不能为空')
+    return
+  }
+  try {
+    const res = await updateProfile({ email: editEmail.value.trim() })
+    if (res && res.data) {
+      email.value = res.data.email || ''
+      userStore.updateProfile({ email: res.data.email || '' })
+    }
+    editingEmail.value = false
+    message.success('邮箱绑定成功')
+  } catch (e: any) {
+    console.error('saveEmail error:', e)
+    message.error(e.message || '绑定失败')
   }
 }
 </script>
