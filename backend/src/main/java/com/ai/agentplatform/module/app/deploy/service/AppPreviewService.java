@@ -2,6 +2,7 @@ package com.ai.agentplatform.module.app.deploy.service;
 
 import com.ai.agentplatform.module.app.deploy.dto.AppCodeFile;
 import com.ai.agentplatform.module.app.deploy.repository.AppDeployAccessor;
+import com.ai.agentplatform.module.app.deploy.support.ShareUrlResolver;
 import com.ai.agentplatform.module.app.deploy.vo.PreviewVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ public class AppPreviewService {
 
     private final AppDeployAccessor appDeployAccessor;
     private final AppCodeFileService appCodeFileService;
+    private final ShareUrlResolver shareUrlResolver;
 
     public PreviewVO buildPreview(Long appId) throws IOException {
         var info = appDeployAccessor.findAppDeployInfo(appId);
@@ -30,12 +32,13 @@ public class AppPreviewService {
         String previewPath = "/preview/" + appId + "/" + entryPath;
         String coverImg = (String) info.get("coverImg");
         String publicCover = StringUtils.hasText(coverImg)
-                ? appCodeFileService.buildPublicUrl(coverImg.startsWith("/") ? coverImg : "/" + coverImg)
+                ? shareUrlResolver.buildShareUrl(shareUrlResolver.normalizeToPath(
+                        coverImg.startsWith("/") ? coverImg : "/" + coverImg))
                 : "";
         return new PreviewVO(
                 appId,
                 (String) info.get("appName"),
-                appCodeFileService.buildPublicUrl(previewPath),
+                shareUrlResolver.buildShareUrl(previewPath),
                 publicCover
         );
     }

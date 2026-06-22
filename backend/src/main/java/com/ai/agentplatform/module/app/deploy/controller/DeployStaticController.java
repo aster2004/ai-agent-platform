@@ -62,16 +62,8 @@ public class DeployStaticController {
     }
 
     private MediaType resolveMediaType(Path file) {
-        try {
-            String probed = Files.probeContentType(file);
-            if (probed != null) {
-                return MediaType.parseMediaType(probed);
-            }
-        } catch (IOException ignored) {
-            // fall through
-        }
         String name = file.getFileName().toString().toLowerCase();
-        if (name.endsWith(".html")) {
+        if (name.endsWith(".html") || name.endsWith(".htm")) {
             return MediaType.parseMediaType("text/html;charset=UTF-8");
         }
         if (name.endsWith(".css")) {
@@ -79,6 +71,14 @@ public class DeployStaticController {
         }
         if (name.endsWith(".js")) {
             return MediaType.parseMediaType("application/javascript;charset=UTF-8");
+        }
+        try {
+            String probed = Files.probeContentType(file);
+            if (probed != null) {
+                return MediaType.parseMediaType(probed);
+            }
+        } catch (IOException ignored) {
+            // fall through
         }
         return MediaType.APPLICATION_OCTET_STREAM;
     }
