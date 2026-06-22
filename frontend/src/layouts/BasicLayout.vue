@@ -17,6 +17,10 @@
             <AppstoreOutlined />
             应用管理
           </a-menu-item>
+          <a-menu-item key="/app/gallery">
+            <StarOutlined />
+            精选广场
+          </a-menu-item>
           <a-menu-item key="/user">
             <UserOutlined />
             用户管理
@@ -24,13 +28,23 @@
         </a-menu>
       </div>
       <div class="header-right">
-        <template v-if="isLoggedIn">
-          <a-avatar :size="32" class="user-avatar">
-            <template #icon><UserOutlined /></template>
-          </a-avatar>
-          <span class="username">{{ username }}</span>
-          <a-button type="link" @click="handleLogout">退出</a-button>
-        </template>
+        <a-dropdown v-if="isLoggedIn">
+          <a-space class="user-info">
+            <a-avatar :size="32" class="user-avatar">
+              <template #icon><UserOutlined /></template>
+            </a-avatar>
+            <span class="username">{{ displayName }}</span>
+            <a-tag v-if="userStore.isAdmin()" color="gold">管理员</a-tag>
+          </a-space>
+          <template #overlay>
+            <a-menu @click="handleRoleMenuClick">
+              <a-menu-item key="user">切换为普通用户</a-menu-item>
+              <a-menu-item key="admin">切换为管理员</a-menu-item>
+              <a-menu-divider />
+              <a-menu-item key="logout">退出登录</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <template v-else>
           <a-button type="text" class="login-btn" @click="handleLogin">
             <UserOutlined />
@@ -46,18 +60,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { CodeOutlined, AppstoreOutlined, UserOutlined } from '@ant-design/icons-vue'
+import {
+  AppstoreOutlined,
+  CodeOutlined,
+  StarOutlined,
+  UserOutlined,
+} from '@ant-design/icons-vue'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 const selectedKeys = ref<string[]>([route.path])
 
-// 静态登录状态，后续接入真实登录逻辑
-const isLoggedIn = ref(false)
-const username = ref('演示用户')
+const isLoggedIn = computed(() => userStore.isLoggedIn() || !!userStore.username)
+const displayName = computed(() => userStore.nickname || userStore.username || '演示用户')
 
 watch(() => route.path, (path) => {
   selectedKeys.value = [path]
@@ -68,13 +88,26 @@ function handleMenuClick({ key }: { key: string }) {
 }
 
 function handleLogin() {
-  isLoggedIn.value = true
-  message.info('登录功能开发中，当前为静态演示')
+  userStore.setUser({
+    userId: 1,
+    username: 'dev_user',
+    nickname: '开发测试用户',
+    token: 'mock-token',
+    role: 'user',
+  })
+  message.success('已登录为普通用户（演示）')
 }
 
-function handleLogout() {
-  isLoggedIn.value = false
-  message.info('退出功能开发中，当前为静态演示')
+function handleRoleMenuClick({ key }: { key: string }) {
+  if (key === 'logout') {
+    userStore.logout()
+    message.info('已退出登录')
+    return
+  }
+
+  localStorage.setItem('role', key)
+  userStore.role = key as 'user' | 'admin'
+  message.success(key === 'admin' ? '已切换为管理员' : '已切换为普通用户')
 }
 </script>
 
@@ -123,6 +156,10 @@ function handleLogout() {
   align-items: center;
   gap: 8px;
   margin-left: 24px;
+}
+
+.user-info {
+  cursor: pointer;
 }
 
 .user-avatar {

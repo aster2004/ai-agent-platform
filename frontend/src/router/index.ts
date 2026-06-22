@@ -21,6 +21,12 @@ const router = createRouter({
           meta: { title: '应用管理' },
         },
         {
+          path: 'app/gallery',
+          name: 'AppGallery',
+          component: () => import('@/views/app/AppGalleryView.vue'),
+          meta: { title: '精选广场' },
+        },
+        {
           path: 'user',
           name: 'UserManage',
           component: () => import('@/views/user/UserManageView.vue'),

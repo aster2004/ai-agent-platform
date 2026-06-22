@@ -20,11 +20,10 @@ public class CodeGenService {
     private final ChatModel chatModel;
     private final StreamingChatModel streamingChatModel;
 
-    private static final String SYSTEM_PROMPT = """
-            你是一个专业的全栈代码生成助手。
-            用户会描述他们的需求，你需要分析需求并生成高质量的代码。
-            请使用 Markdown 格式输出，包含代码块和必要的说明。
-            """;
+    private static final String SYSTEM_PROMPT =
+            "你是一个专业的全栈代码生成助手。\n"
+            + "用户会描述他们的需求，你需要分析需求并生成高质量的代码。\n"
+            + "请使用 Markdown 格式输出，包含代码块和必要的说明。\n";
 
     public String generate(String prompt) {
         return chatModel.chat(SYSTEM_PROMPT + "\n\n用户需求：\n" + prompt);

@@ -5,6 +5,12 @@ const request = axios.create({
   timeout: 60000,
 })
 
+request.interceptors.request.use((config) => {
+  const role = localStorage.getItem('role') || 'user'
+  config.headers['X-User-Role'] = role
+  return config
+})
+
 request.interceptors.response.use(
   (response) => {
     const res = response.data
