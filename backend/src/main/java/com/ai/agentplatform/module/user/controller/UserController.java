@@ -5,7 +5,6 @@ import com.ai.agentplatform.module.user.config.JwtUtil;
 import com.ai.agentplatform.module.user.dto.UserLoginRequest;
 import com.ai.agentplatform.module.user.dto.UserProfileRequest;
 import com.ai.agentplatform.module.user.dto.UserRegisterRequest;
-import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 import com.ai.agentplatform.module.user.service.UserService;
 import com.ai.agentplatform.module.user.vo.LoginVO;
 import com.ai.agentplatform.module.user.vo.UserVO;
@@ -20,6 +19,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 
 @Tag(name = "用户管理")
 @RestController

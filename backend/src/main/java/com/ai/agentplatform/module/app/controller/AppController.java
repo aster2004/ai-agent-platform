@@ -2,7 +2,7 @@ package com.ai.agentplatform.module.app.controller;
 
 import com.ai.agentplatform.common.exception.BusinessException;
 import com.ai.agentplatform.common.result.Result;
-import com.ai.agentplatform.common.util.AdminAuthHelper;
+import com.ai.agentplatform.common.util.SecurityUtils;
 import com.ai.agentplatform.module.app.dto.AppCodeUpdateRequest;
 import com.ai.agentplatform.module.app.dto.AppCreateRequest;
 import com.ai.agentplatform.module.app.dto.AppFeaturedUpdateRequest;
@@ -15,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -26,33 +27,29 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AppController {
 
-    private static final Long DEFAULT_USER_ID = 1L;
-
     private final AppService appService;
     private final AppCoverService appCoverService;
-    private final AdminAuthHelper adminAuthHelper;
 
     @Operation(summary = "创建应用")
     @PostMapping
     public Result<AppVO> create(@Valid @RequestBody AppCreateRequest request) {
-        return Result.success(appService.create(request, DEFAULT_USER_ID));
+        return Result.success(appService.create(request, SecurityUtils.getCurrentUserId()));
     }
 
     @Operation(summary = "我的应用列表")
     @GetMapping("/list")
     public Result<Page<AppVO>> list(@RequestParam(defaultValue = "0") int page,
                                       @RequestParam(defaultValue = "10") int size) {
-        return Result.success(appService.listByUser(DEFAULT_USER_ID, page, size));
+        return Result.success(appService.listByUser(SecurityUtils.getCurrentUserId(), page, size));
     }
 
     @Operation(summary = "管理员：全站应用列表")
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/admin/list")
     public Result<Page<AppVO>> adminList(
-            @RequestHeader(value = "X-User-Role", defaultValue = "user") String role,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) Integer isFeatured) {
-        adminAuthHelper.requireAdmin(role);
         return Result.success(appService.listAllForAdmin(page, size, isFeatured));
     }
 
@@ -72,16 +69,15 @@ public class AppController {
     @PutMapping("/{id}")
     public Result<AppVO> update(@PathVariable Long id,
                                 @Valid @RequestBody AppUpdateRequest request) {
-        return Result.success(appService.update(id, request, DEFAULT_USER_ID));
+        return Result.success(appService.update(id, request, SecurityUtils.getCurrentUserId()));
     }
 
     @Operation(summary = "管理员：设精选 / 取消精选")
+    @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}/featured")
     public Result<AppVO> setFeatured(
-            @RequestHeader(value = "X-User-Role", defaultValue = "user") String role,
             @PathVariable Long id,
             @RequestBody AppFeaturedUpdateRequest request) {
-        adminAuthHelper.requireAdmin(role);
         boolean featured;
         try {
             featured = request.resolveFeatured();
@@ -107,7 +103,7 @@ public class AppController {
     @Operation(summary = "下架应用")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        appService.delete(id, DEFAULT_USER_ID);
+        appService.delete(id, SecurityUtils.getCurrentUserId());
         return Result.success();
     }
 }
