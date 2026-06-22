@@ -120,13 +120,13 @@ public class UserService {
         }
         if (phone != null) {
             if (!phone.equals(user.getPhone()) && userRepository.existsByPhone(phone)) {
-                throw new BusinessException("手机号已被使用");
+                throw new BusinessException("手机号已被绑定");
             }
             user.setPhone(phone);
         }
         if (email != null) {
             if (!email.equals(user.getEmail()) && userRepository.existsByEmail(email)) {
-                throw new BusinessException("邮箱已被使用");
+                throw new BusinessException("邮箱已被绑定");
             }
             user.setEmail(email);
         }
