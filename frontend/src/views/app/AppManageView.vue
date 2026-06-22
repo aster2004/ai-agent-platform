@@ -208,9 +208,21 @@ function canManageApp(record: AppVO) {
 async function loadList() {
   loading.value = true
   try {
-    const res = isAdmin.value
-      ? await getAdminAppList(pagination.current - 1, pagination.pageSize, featuredFilter.value)
-      : await getAppList(pagination.current - 1, pagination.pageSize)
+    if (isAdmin.value) {
+      try {
+        const res = await getAdminAppList(pagination.current - 1, pagination.pageSize, featuredFilter.value)
+        appList.value = res.data.content
+        pagination.total = res.data.totalElements
+        return
+      } catch {
+        // localStorage 显示管理员但 JWT 无 ADMIN 权限时，降级为普通列表
+        const res = await getAppList(pagination.current - 1, pagination.pageSize)
+        appList.value = res.data.content
+        pagination.total = res.data.totalElements
+        return
+      }
+    }
+    const res = await getAppList(pagination.current - 1, pagination.pageSize)
     appList.value = res.data.content
     pagination.total = res.data.totalElements
   } catch (e: any) {

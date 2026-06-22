@@ -6,8 +6,10 @@ const request = axios.create({
 })
 
 request.interceptors.request.use((config) => {
-  const role = localStorage.getItem('role') || 'user'
-  config.headers['X-User-Role'] = role
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
   return config
 })
 
@@ -19,7 +21,17 @@ request.interceptors.response.use(
     }
     return res
   },
-  (error) => Promise.reject(error),
+  (error) => {
+    const status = error.response?.status
+    if (status === 401) {
+      localStorage.clear()
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
+    const message = error.response?.data?.message || error.message || '请求失败'
+    return Promise.reject(new Error(message))
+  },
 )
 
 export default request
