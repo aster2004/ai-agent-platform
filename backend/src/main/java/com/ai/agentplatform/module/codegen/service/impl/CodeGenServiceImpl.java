@@ -150,6 +150,8 @@ public class CodeGenServiceImpl implements CodeGenService {
                             record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
                             record.setCostTokens(totalText.length());
                             record.setDuration((int) costMs);
+                           // record.setTemperature(request.getTemperature());
+                           // record.setMaxTokens(request.getMaxTokens());
                             record.setWorkflowStep("");
                             mapper.insert(record);
                             appSyncHelper.syncCodeToApp(realAppId, totalText);
