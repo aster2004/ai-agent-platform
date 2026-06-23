@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ai.agentplatform.module.codegen.mapper.CodeGenerateMapper">
+    <sql id="baseColumns">
+        id,user_id,app_id,session_id,prompt,code_content,model_name,generate_type,
+        generate_status,error_msg,cost_tokens,duration,workflow_step,
+        create_time,update_time
+    </sql>
+
+    <!-- 新增代码生成记录 -->
+    <insert id="insert" parameterType="com.ai.agentplatform.module.codegen.entity.CodeGenerate" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO code_generate (
+            user_id,app_id,session_id,prompt,code_content,model_name,generate_type,
+            generate_status,error_msg,cost_tokens,duration,workflow_step
+        ) VALUES (
+                     #{userId},#{appId},#{sessionId},#{prompt},#{codeContent},#{modelName},#{generateType},
+                     #{generateStatus},#{errorMsg},#{costTokens},#{duration},#{workflowStep}
+                 )
+    </insert>
+
+    <!-- 分页查询用户记录 -->
+    <select id="selectPage" resultType="com.ai.agentplatform.module.codegen.vo.CodeGenVO">
+        SELECT id,prompt,code_content,model_name,generate_type,generate_status,error_msg,cost_tokens,duration,workflow_step,create_time
+        FROM code_generate
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+            LIMIT #{pageSize} OFFSET #{offset}
+    </select>
+
+    <!-- 查询用户总条数 -->
+    <select id="countByUserId" resultType="java.lang.Long">
+        SELECT COUNT(1) FROM code_generate WHERE user_id = #{userId}
+    </select>
+</mapper>
