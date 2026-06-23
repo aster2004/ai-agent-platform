@@ -64,6 +64,12 @@ const router = createRouter({
           component: () => import('@/views/user/ProfileView.vue'),
           meta: { title: '个人信息' },
         },
+        {
+          path: 'chat',
+          name: 'Chat',
+          component: () => import('@/views/chat/ChatView.vue'),
+          meta: { title: '首页' }
+        }
       ],
     },
   ],

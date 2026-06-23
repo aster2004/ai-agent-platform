@@ -9,6 +9,12 @@
           class="nav-menu"
           @click="handleMenuClick"
         >
+          <!-- 成员7：新增首页导航菜单 -->
+          <a-menu-item key="/chat">
+            <HomeOutlined />
+            首页
+          </a-menu-item>
+          <!-- 成员7：新增聊天导航菜单 -->
           <a-menu-item key="/codegen">
             <CodeOutlined />
             代码生成
@@ -72,6 +78,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
+  HomeOutlined,
   AppstoreOutlined,
   CloudUploadOutlined,
   CodeOutlined,
