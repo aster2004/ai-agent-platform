@@ -132,6 +132,13 @@
 			<artifactId>langgraph4j-langchain4j</artifactId>
 		</dependency>
 
+		<!-- Selenium（成员3 封面截图 P2，CoverScreenshotService 编译需要） -->
+		<dependency>
+			<groupId>org.seleniumhq.selenium</groupId>
+			<artifactId>selenium-java</artifactId>
+			<version>4.27.0</version>
+		</dependency>
+
 		<!-- Utils -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>
