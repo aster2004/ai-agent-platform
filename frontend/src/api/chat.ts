@@ -1,5 +1,5 @@
 // 移除 renameMockSession
-import { getMockSession, getMockMsg, sendMockMsg, deleteMockSession, createMockSession } from '@/mock/chat'
+import { getMockSession, getMockMsg, sendMockMsg, saveMockAiMsg, deleteMockSession, createMockSession } from '@/mock/chat'
 import type { ChatSaveReq, ChatSession, ChatMessage, ChatHistoryRes } from '@/types/chat'
 
 /**
@@ -24,6 +24,10 @@ export function getHistoryMsg(sessionId: number): Promise<{ code: number; messag
  */
 export function saveChatMessage(params: ChatSaveReq): Promise<{ code: number; message: string; data: ChatMessage }> {
     return sendMockMsg(params.content, params.sessionId!, params.appId)
+}
+
+export function saveAiMessage(sessionId: number, appId: number | null, content: string): Promise<{ code: number; message: string; data: ChatMessage }> {
+    return saveMockAiMsg(sessionId, appId, content)
 }
 
 /**

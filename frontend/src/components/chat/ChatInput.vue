@@ -59,6 +59,20 @@ const handleSend = (e?: Event) => {
   })
   text.value = ''
 }
+
+function setText(val: string) {
+  text.value = val
+}
+
+function setMode(mode: 'fast' | 'deep') {
+  runMode.value = mode
+}
+
+function getMode() {
+  return runMode.value
+}
+
+defineExpose({ setText, setMode, getMode })
 </script>
 
 <style scoped>

@@ -96,17 +96,7 @@ export function sendMockMsg(content: string, sessionId: number, appId: number | 
         updateTime: now,
         isDeleted: 0
     }
-    const newAIMsg: ChatMessage = {
-        id: Date.now() + 1,
-        sessionId,
-        appId,
-        messageType: 'ai',
-        content: `AI已收到你的需求：「${content}」，这里是模拟生成的代码示例`,
-        createTime: now,
-        updateTime: now,
-        isDeleted: 0
-    }
-    list.push(newUserMsg, newAIMsg)
+    list.push(newUserMsg)
 
     const targetSession = mockSessionList.find(s => s.id === sessionId)
     if (targetSession) {
@@ -120,6 +110,39 @@ export function sendMockMsg(content: string, sessionId: number, appId: number | 
         code: 200,
         message: 'success',
         data: newUserMsg
+    })
+}
+
+export function saveMockAiMsg(sessionId: number, appId: number | null, content: string): Promise<{ code: number; message: string; data: ChatMessage }> {
+    if (!sessionMsgMap.has(sessionId)) {
+        sessionMsgMap.set(sessionId, [])
+    }
+    const list = sessionMsgMap.get(sessionId)!
+    const now = formatNow()
+    const newAIMsg: ChatMessage = {
+        id: Date.now(),
+        sessionId,
+        appId,
+        messageType: 'ai',
+        content,
+        createTime: now,
+        updateTime: now,
+        isDeleted: 0
+    }
+    list.push(newAIMsg)
+
+    const targetSession = mockSessionList.find(s => s.id === sessionId)
+    if (targetSession) {
+        targetSession.messageCount = list.length
+        targetSession.lastMessagePreview = content.length > 20 ? content.slice(0, 20) + '...' : content
+        targetSession.lastMessageTime = now
+        targetSession.updateTime = now
+    }
+
+    return Promise.resolve({
+        code: 200,
+        message: 'success',
+        data: newAIMsg
     })
 }
 
