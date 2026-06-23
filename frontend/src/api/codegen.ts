@@ -1,4 +1,4 @@
-import type { CodeGenParams, WorkflowParams, WorkflowResult } from '@/types/codegen'
+import type { CodeGenParams, CodeGenVO, WorkflowParams, WorkflowResult } from '@/types/codegen'
 import type { Result } from '@/types/common'
 import request from '@/utils/request'
 
@@ -11,7 +11,7 @@ function streamHeaders(): HeadersInit {
 }
 
 export function generateCode(data: CodeGenParams) {
-  return request.post<any, Result<string>>('/codegen', data)
+  return request.post<any, Result<CodeGenVO>>('/codegen/generate', data)
 }
 
 export function generateCodeStream(data: CodeGenParams): Promise<Response> {

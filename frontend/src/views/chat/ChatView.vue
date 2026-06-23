@@ -45,6 +45,7 @@
         </template>
         <WorkflowMessage v-if="workflowState" :state="workflowState" />
         <StreamingMessage v-if="streamingContent" :content="streamingContent" />
+        <div v-if="generating && !streamingContent && !workflowState" class="loading-tip">正在生成...</div>
       </div>
       <ChatInput ref="chatInputRef" @send="handleSend" :is-home="false" />
     </div>
@@ -66,11 +67,11 @@ import WorkflowMessage from '@/components/chat/WorkflowMessage.vue'
 import StreamingMessage from '@/components/chat/StreamingMessage.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import { getSessionList, getHistoryMsg, saveChatMessage, saveAiMessage, deleteSession, createSession } from '@/api/chat'
-import { generateCodeStream, executeWorkflowStream } from '@/api/codegen'
+import { generateCode, generateCodeStream, executeWorkflowStream } from '@/api/codegen'
 import { readSseStream } from '@/utils/codegenStream'
 import { buildWorkflowContent, buildCodeContent } from '@/utils/parseAiMessage'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
-import type { WorkflowMessageState, WorkflowStepEvent } from '@/types/codegen'
+import type { GenerationOutput, WorkflowMessageState, WorkflowStepEvent } from '@/types/codegen'
 
 const sessionList = ref<ChatSession[]>([])
 const activeSession = ref<number | null>(null)
@@ -197,6 +198,23 @@ async function runWorkflow(sessionId: number, content: string) {
   }
 }
 
+async function runQuickGenerationSync(sessionId: number, content: string) {
+  workflowState.value = null
+  streamingContent.value = ''
+  await scrollToBottom()
+
+  try {
+    const res = await generateCode({ prompt: content, sessionId, appId: APP_ID })
+    const code = res.data?.codeContent
+    if (code) {
+      await saveAiMessage(sessionId, APP_ID, buildCodeContent(code))
+    }
+    await loadMsg(sessionId)
+  } catch (e: any) {
+    message.error(formatError(e))
+  }
+}
+
 async function runQuickGeneration(sessionId: number, content: string) {
   workflowState.value = null
   streamingContent.value = ''
@@ -231,11 +249,18 @@ function formatError(e: any): string {
   return msg || '生成失败'
 }
 
-async function processGeneration(sessionId: number, content: string, mode: 'fast' | 'deep') {
+async function processGeneration(
+  sessionId: number,
+  content: string,
+  mode: 'fast' | 'deep',
+  output: GenerationOutput,
+) {
   generating.value = true
   try {
     if (mode === 'deep') {
       await runWorkflow(sessionId, content)
+    } else if (output === 'sync') {
+      await runQuickGenerationSync(sessionId, content)
     } else {
       await runQuickGeneration(sessionId, content)
     }
@@ -257,18 +282,20 @@ async function sendUserMessage(sessionId: number, content: string) {
   try {
     await saveChatMessage(params)
     await loadMsg(sessionId)
+    const listRes = await getSessionList()
+    if (listRes.code === 200) sessionList.value = listRes.data
   } finally {
     loading.value = false
   }
 }
 
-async function handleSend({ content, mode }: { content: string; mode: 'fast' | 'deep' }) {
+async function handleSend({ content, mode, output }: { content: string; mode: 'fast' | 'deep'; output: GenerationOutput }) {
   if (!activeSession.value || loading.value || generating.value) return
   await sendUserMessage(activeSession.value, content)
-  await processGeneration(activeSession.value, content, mode)
+  await processGeneration(activeSession.value, content, mode, output)
 }
 
-async function handleHomeSend({ content, mode }: { content: string; mode: 'fast' | 'deep' }) {
+async function handleHomeSend({ content, mode, output }: { content: string; mode: 'fast' | 'deep'; output: GenerationOutput }) {
   if (loading.value || generating.value) return
 
   loading.value = true
@@ -296,14 +323,15 @@ async function handleHomeSend({ content, mode }: { content: string; mode: 'fast'
     loading.value = false
   }
 
-  await processGeneration(activeSession.value!, content, mode)
+  await processGeneration(activeSession.value!, content, mode, output)
 }
 
 async function handleResend(content: string) {
   if (!activeSession.value || loading.value || generating.value) return
   const mode = chatInputRef.value?.getMode?.() ?? 'deep'
+  const output = chatInputRef.value?.getOutput?.() ?? 'stream'
   await sendUserMessage(activeSession.value, content)
-  await processGeneration(activeSession.value, content, mode)
+  await processGeneration(activeSession.value, content, mode, output)
 }
 
 async function handleCreateSession() {

@@ -1,5 +1,13 @@
-// 移除 renameMockSession
 import type { ChatSession, ChatMessage, ChatHistoryRes } from '@/types/chat'
+
+const DEFAULT_SESSION_TITLE = '新对话'
+const TITLE_MAX_LEN = 20
+
+function deriveSessionTitle(content: string): string {
+    const trimmed = content.trim().replace(/\s+/g, ' ')
+    if (!trimmed) return DEFAULT_SESSION_TITLE
+    return trimmed.length > TITLE_MAX_LEN ? `${trimmed.slice(0, TITLE_MAX_LEN)}…` : trimmed
+}
 
 export let mockSessionList: ChatSession[] = [
     {
@@ -100,6 +108,10 @@ export function sendMockMsg(content: string, sessionId: number, appId: number | 
 
     const targetSession = mockSessionList.find(s => s.id === sessionId)
     if (targetSession) {
+        const userMsgCount = list.filter(m => m.messageType === 'user' && m.isDeleted === 0).length
+        if (userMsgCount === 1 && targetSession.sessionTitle === DEFAULT_SESSION_TITLE) {
+            targetSession.sessionTitle = deriveSessionTitle(content)
+        }
         targetSession.messageCount = list.length
         targetSession.lastMessagePreview = content.length > 20 ? content.slice(0, 20) + '...' : content
         targetSession.lastMessageTime = now

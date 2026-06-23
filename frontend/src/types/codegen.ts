@@ -1,8 +1,20 @@
 export interface CodeGenParams {
   prompt: string
   appId?: number
+  sessionId?: number
   generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW'
 }
+
+export interface CodeGenVO {
+  id?: number
+  codeContent?: string
+  generateStatus?: number
+  modelName?: string
+  costTokens?: number
+  duration?: number
+}
+
+export type GenerationOutput = 'stream' | 'sync'
 
 export interface CodeFile {
   path: string
