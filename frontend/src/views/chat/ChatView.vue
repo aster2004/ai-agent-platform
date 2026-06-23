@@ -1,10 +1,18 @@
 <template>
   <div class="chat-container">
+    <!-- 顶部折叠按钮 -->
     <button class="toggle-btn-fixed" @click="showSidebar = !showSidebar">
-      <!-- 始终固定显示该图标，不做切换 -->
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
         <line x1="10" y1="3" x2="10" y2="21"></line>
+      </svg>
+    </button>
+
+    <!-- 【关键修复】绑定点击事件 @click="handleCreateSession" -->
+    <button class="create-btn-fixed" @click="handleCreateSession">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
       </svg>
     </button>
 
@@ -79,7 +87,6 @@ async function loadMsg(sessionId: number) {
   }
 }
 
-// 改动：接收对象参数，解构出content和mode
 async function handleSend({ content, mode }: { content: string; mode: 'fast' | 'deep' }) {
   if (!activeSession.value || loading.value) return
   console.log('当前执行模式：', mode)
@@ -98,7 +105,6 @@ async function handleSend({ content, mode }: { content: string; mode: 'fast' | '
   }
 }
 
-// 改动：首页发送同样接收对象参数
 async function handleHomeSend({ content, mode }: { content: string; mode: 'fast' | 'deep' }) {
   loading.value = true
   try {
@@ -176,6 +182,27 @@ async function handleDeleteSession(delId: number) {
   background: #f2f3f5;
 }
 
+.create-btn-fixed {
+  position: absolute;
+  top: 21px;
+  left: 66px;
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  border: 1px solid #e4e4e7;
+  background: #ffffff;
+  cursor: pointer;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+.create-btn-fixed:hover {
+  background-color: #f4f4f5;
+  border-color: #d4d4d8;
+}
+
 .sidebar-wrapper {
   width: 260px;
   flex-shrink: 0;
@@ -193,13 +220,12 @@ async function handleDeleteSession(delId: number) {
   height: 79vh;
   overflow: hidden;
   background-color: #ffffff;
-  /* 让子元素居中 */
   align-items: center;
 }
 .msg-list {
   flex: 1;
   width: 60%;
-  max-width: 1200px; /* 和输入框最大宽度保持一致 */
+  max-width: 1200px;
   padding: 15px;
   overflow-y: auto;
 }
