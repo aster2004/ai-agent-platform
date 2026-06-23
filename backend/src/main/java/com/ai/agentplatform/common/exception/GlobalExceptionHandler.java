@@ -7,6 +7,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.io.IOException;
+
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -19,10 +21,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, BindException.class})
     public Result<Void> handleValidationException(Exception e) {
         String message = "参数校验失败";
-        if (e instanceof MethodArgumentNotValidException ex && ex.getBindingResult().hasFieldErrors()) {
-            message = ex.getBindingResult().getFieldError().getDefaultMessage();
+        if (e instanceof MethodArgumentNotValidException) {
+            MethodArgumentNotValidException ex = (MethodArgumentNotValidException) e;
+            if (ex.getBindingResult().hasFieldErrors()) {
+                message = ex.getBindingResult().getFieldError().getDefaultMessage();
+            }
         }
         return Result.fail(400, message);
+    }
+
+    @ExceptionHandler({IOException.class, InterruptedException.class})
+    public Result<Void> handleIoException(Exception e) {
+        log.error("IO/进程异常", e);
+        return Result.fail(500, e.getMessage() != null ? e.getMessage() : "操作失败");
     }
 
     @ExceptionHandler(Exception.class)
