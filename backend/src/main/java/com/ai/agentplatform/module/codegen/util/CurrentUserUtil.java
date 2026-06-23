@@ -1,5 +1,8 @@
 package com.ai.agentplatform.module.codegen.util;
-
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Component;
 /**
  * 当前登录用户工具类（并行开发Mock版本）
@@ -7,12 +10,23 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class CurrentUserUtil {
-
-    /**
-     * 获取当前操作人userId，Mock固定返回测试用户1
-     */
     public static Long getCurrentUserId() {
-        // 并行开发阶段固定Mock值，集成后替换JWT解析逻辑
-        return 1L;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        // 未登录拦截
+        if (auth == null || "anonymousUser".equals(auth.getPrincipal())) {
+            throw new RuntimeException("用户未登录，请携带Token访问接口");
+        }
+        Object principal = auth.getPrincipal();
+        // 方案1：principal是userId字符串（优先用，找成员确认是否符合）
+        if (principal instanceof String) {
+            return Long.parseLong((String) principal);
+        }
+        // 方案2：反射读取自定义UserDetails的getUserId，不用导入对方类
+        try {
+            java.lang.reflect.Method getIdMethod = principal.getClass().getDeclaredMethod("getUserId");
+            return (Long) getIdMethod.invoke(principal);
+        } catch (Exception e) {
+            throw new RuntimeException("无法获取登录用户ID，请检查登录令牌", e);
+        }
     }
 }

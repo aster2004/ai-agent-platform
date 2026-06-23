@@ -11,10 +11,13 @@ public class CodeGenSecurityConfig {
     @Bean
     public SecurityFilterChain codeGenFilterChain(HttpSecurity http) throws Exception {
         http
-                .securityMatcher("/api/codegen/**") // 只匹配你的代码生成接口
+                .securityMatcher("/api/codegen/**")
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll() // 全部匿名放行
+                        // 放行swagger文档，不需要登录
+                        .requestMatchers("/api/codegen/v3/api-docs", "/api/codegen/swagger-ui/**").permitAll()
+                        // 所有生成、历史接口必须登录
+                        .anyRequest().authenticated()
                 );
         return http.build();
     }
