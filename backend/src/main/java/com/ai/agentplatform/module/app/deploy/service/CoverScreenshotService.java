@@ -1,9 +1,9 @@
 package com.ai.agentplatform.module.app.deploy.service;
 
 import com.ai.agentplatform.common.exception.BusinessException;
-import com.ai.agentplatform.module.app.deploy.config.DeployProperties;
 import com.ai.agentplatform.module.app.deploy.repository.AppDeployAccessor;
 import com.ai.agentplatform.module.app.deploy.support.DeployPathResolver;
+import com.ai.agentplatform.module.app.deploy.support.ShareUrlResolver;
 import com.ai.agentplatform.module.app.deploy.vo.CoverResultVO;
 import com.ai.agentplatform.module.app.deploy.vo.PreviewVO;
 import lombok.RequiredArgsConstructor;
@@ -28,22 +28,20 @@ public class CoverScreenshotService {
 
     private final AppPreviewService appPreviewService;
     private final AppDeployAccessor appDeployAccessor;
-    private final AppCodeFileService appCodeFileService;
-    private final DeployProperties deployProperties;
     private final DeployPathResolver deployPathResolver;
+    private final ShareUrlResolver shareUrlResolver;
 
     public CoverResultVO captureCover(Long appId) throws IOException, InterruptedException {
         PreviewVO preview = appPreviewService.buildPreview(appId);
         String previewUrl = toAbsoluteUrl(preview.getPreviewUrl());
 
-        Path coverDir = deployPathResolver.resolve("covers");
-        Files.createDirectories(coverDir);
-        Path coverPath = coverDir.resolve(appId + ".png");
+        Path coverFile = deployPathResolver.resolve("covers").resolve(appId + ".png");
+        Files.createDirectories(coverFile.getParent());
+        captureWithSelenium(previewUrl, coverFile);
 
-        captureWithSelenium(previewUrl, coverPath);
-
-        String coverUrl = appCodeFileService.buildPublicUrl("/covers/" + appId + ".png");
-        appDeployAccessor.updateCoverImg(appId, coverUrl);
+        String coverPath = "/covers/" + appId + ".png";
+        appDeployAccessor.updateCoverImg(appId, coverPath);
+        String coverUrl = shareUrlResolver.buildShareUrl(coverPath);
         return new CoverResultVO(appId, coverUrl);
     }
 
@@ -72,13 +70,6 @@ public class CoverScreenshotService {
         if (url.startsWith("http://") || url.startsWith("https://")) {
             return url;
         }
-        String base = deployProperties.getPublicBaseUrl();
-        if (!org.springframework.util.StringUtils.hasText(base)) {
-            base = "http://localhost:8080";
-        }
-        if (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        return base + url;
+        return shareUrlResolver.buildShareUrl(url);
     }
 }

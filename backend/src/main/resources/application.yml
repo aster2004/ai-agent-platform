@@ -8,6 +8,10 @@ spring:
     active: dev
   config:
     import: optional:classpath:application-local.yml
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
 
   jpa:
     hibernate:
@@ -44,3 +48,8 @@ logging:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+
+app:
+  upload:
+    path: uploads
+    url-prefix: /uploads

@@ -1,6 +1,10 @@
 # 团队开发环境配置（提交到 Git，组员 clone 后可直接使用）
 # 如本机 MySQL 密码不同，可复制 application-local.yml.example 为 application-local.yml 覆盖
 
+server:
+  # 监听所有网卡，局域网分享链接（10.x / 192.168.x）才能访问
+  address: 0.0.0.0
+
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/ai_agent_platform?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -13,3 +17,14 @@ spring:
       host: localhost
       port: 6379
       database: 0
+
+# 成员3：部署分享
+app:
+  deploy:
+    screenshot-enabled: true
+    nginx-port: 8888
+    docker-base-port: 9000
+    # Windows 下 Nginx 1.15 不支持中文路径，必须配置纯英文安装目录
+    nginx-install-path: D:/nginx-1.15.12
+    nginx-executable: D:/nginx-1.15.12/nginx.exe
+    # 若分享 IP 不对，可指定：share-host: 10.203.2.179

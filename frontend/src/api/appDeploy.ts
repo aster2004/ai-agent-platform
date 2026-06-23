@@ -1,17 +1,27 @@
 import request from '@/utils/request'
-import type { CoverResultVO, DeployResultVO, PreviewVO } from '@/types/appDeploy'
+import type {
+  CoverResultVO,
+  DeployModeCode,
+  DeployModeVO,
+  DeployResultVO,
+  PreviewVO,
+} from '@/types/appDeploy'
 import type { Result } from '@/types/common'
 
 export function getAppPreview(appId: number) {
-  return request.get<any, Result<PreviewVO>>(`/app/${appId}/preview`)
+  return request.get<any, Result<PreviewVO>>(`/api/app/${appId}/preview`)
 }
 
-export function deployApp(appId: number) {
-  return request.post<any, Result<DeployResultVO>>(`/app/${appId}/deploy`)
+export function getDeployModes() {
+  return request.get<any, Result<DeployModeVO[]>>('/api/app/deploy/modes')
+}
+
+export function deployApp(appId: number, mode: DeployModeCode = 'local') {
+  return request.post<any, Result<DeployResultVO>>(`/api/app/${appId}/deploy`, { mode })
 }
 
 export function getDeployUrl(appId: number) {
-  return request.get<any, Result<string>>(`/app/${appId}/deploy-url`)
+  return request.get<any, Result<DeployResultVO>>(`/api/app/${appId}/deploy-url`)
 }
 
 export function downloadAppSource(appId: number) {
@@ -19,5 +29,5 @@ export function downloadAppSource(appId: number) {
 }
 
 export function captureCover(appId: number) {
-  return request.post<any, Result<CoverResultVO>>(`/app/${appId}/cover`)
+  return request.post<any, Result<CoverResultVO>>(`/api/app/${appId}/cover`)
 }
