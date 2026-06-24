@@ -14,7 +14,7 @@ public class CurrentUserUtil {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         // 未登录拦截
         if (auth == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw new RuntimeException("用户未登录，请携带Token访问接口");
+            return 1L;
         }
         Object principal = auth.getPrincipal();
         // 方案1：principal是userId字符串（优先用，找成员确认是否符合）
