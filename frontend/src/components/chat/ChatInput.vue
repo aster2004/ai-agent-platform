@@ -27,16 +27,34 @@
       <button
           class="mode-btn"
           :class="{ active: runMode === 'deep' }"
-          @click="runMode = 'deep'"
+          @click="selectDeepMode"
       >
         深度工作流
       </button>
+      <template v-if="runMode === 'fast'">
+        <span class="mode-divider" />
+        <button
+            class="mode-btn"
+            :class="{ active: outputMode === 'stream' }"
+            @click="outputMode = 'stream'"
+        >
+          流式输出
+        </button>
+        <button
+            class="mode-btn"
+            :class="{ active: outputMode === 'sync' }"
+            @click="outputMode = 'sync'"
+        >
+          同步输出
+        </button>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, defineEmits, defineProps } from 'vue'
+import type { GenerationOutput } from '@/types/codegen'
 
 const { isHome } = defineProps({
   isHome: {
@@ -47,7 +65,16 @@ const { isHome } = defineProps({
 
 const text = ref('')
 const runMode = ref<'fast' | 'deep'>('fast')
+const outputMode = ref<GenerationOutput>('stream')
 const emit = defineEmits(['send'])
+
+function selectDeepMode() {
+  runMode.value = 'deep'
+}
+
+function resolveOutput(): GenerationOutput {
+  return runMode.value === 'deep' ? 'stream' : outputMode.value
+}
 
 const handleSend = (e?: Event) => {
   if (e) e.preventDefault()
@@ -55,10 +82,29 @@ const handleSend = (e?: Event) => {
   if (!val) return
   emit('send', {
     content: val,
-    mode: runMode.value
+    mode: runMode.value,
+    output: resolveOutput(),
   })
   text.value = ''
 }
+
+function setText(val: string) {
+  text.value = val
+}
+
+function setMode(mode: 'fast' | 'deep') {
+  runMode.value = mode
+}
+
+function getMode() {
+  return runMode.value
+}
+
+function getOutput() {
+  return resolveOutput()
+}
+
+defineExpose({ setText, setMode, getMode, getOutput })
 </script>
 
 <style scoped>
@@ -133,6 +179,14 @@ textarea:focus {
   background: #1677ff;
   color: #fff;
   border-color: #1677ff;
+}
+
+.mode-divider {
+  width: 1px;
+  height: 20px;
+  background: #e5e7eb;
+  margin: 0 2px;
+  align-self: center;
 }
 
 /* 废弃原来的home-input差异化样式，直接统一 */

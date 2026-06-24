@@ -1,5 +1,13 @@
-// 移除 renameMockSession
 import type { ChatSession, ChatMessage, ChatHistoryRes } from '@/types/chat'
+
+const DEFAULT_SESSION_TITLE = '新对话'
+const TITLE_MAX_LEN = 20
+
+function deriveSessionTitle(content: string): string {
+    const trimmed = content.trim().replace(/\s+/g, ' ')
+    if (!trimmed) return DEFAULT_SESSION_TITLE
+    return trimmed.length > TITLE_MAX_LEN ? `${trimmed.slice(0, TITLE_MAX_LEN)}…` : trimmed
+}
 
 export let mockSessionList: ChatSession[] = [
     {
@@ -96,17 +104,44 @@ export function sendMockMsg(content: string, sessionId: number, appId: number | 
         updateTime: now,
         isDeleted: 0
     }
+    list.push(newUserMsg)
+
+    const targetSession = mockSessionList.find(s => s.id === sessionId)
+    if (targetSession) {
+        const userMsgCount = list.filter(m => m.messageType === 'user' && m.isDeleted === 0).length
+        if (userMsgCount === 1 && targetSession.sessionTitle === DEFAULT_SESSION_TITLE) {
+            targetSession.sessionTitle = deriveSessionTitle(content)
+        }
+        targetSession.messageCount = list.length
+        targetSession.lastMessagePreview = content.length > 20 ? content.slice(0, 20) + '...' : content
+        targetSession.lastMessageTime = now
+        targetSession.updateTime = now
+    }
+
+    return Promise.resolve({
+        code: 200,
+        message: 'success',
+        data: newUserMsg
+    })
+}
+
+export function saveMockAiMsg(sessionId: number, appId: number | null, content: string): Promise<{ code: number; message: string; data: ChatMessage }> {
+    if (!sessionMsgMap.has(sessionId)) {
+        sessionMsgMap.set(sessionId, [])
+    }
+    const list = sessionMsgMap.get(sessionId)!
+    const now = formatNow()
     const newAIMsg: ChatMessage = {
-        id: Date.now() + 1,
+        id: Date.now(),
         sessionId,
         appId,
         messageType: 'ai',
-        content: `AI已收到你的需求：「${content}」，这里是模拟生成的代码示例`,
+        content,
         createTime: now,
         updateTime: now,
         isDeleted: 0
     }
-    list.push(newUserMsg, newAIMsg)
+    list.push(newAIMsg)
 
     const targetSession = mockSessionList.find(s => s.id === sessionId)
     if (targetSession) {
@@ -119,7 +154,7 @@ export function sendMockMsg(content: string, sessionId: number, appId: number | 
     return Promise.resolve({
         code: 200,
         message: 'success',
-        data: newUserMsg
+        data: newAIMsg
     })
 }
 

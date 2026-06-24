@@ -14,11 +14,6 @@
             <HomeOutlined />
             首页
           </a-menu-item>
-          <!-- 成员7：新增聊天导航菜单 -->
-          <a-menu-item key="/codegen">
-            <CodeOutlined />
-            代码生成
-          </a-menu-item>
           <a-menu-item key="/app">
             <AppstoreOutlined />
             应用管理
@@ -81,7 +76,6 @@ import {
   HomeOutlined,
   AppstoreOutlined,
   CloudUploadOutlined,
-  CodeOutlined,
   StarOutlined,
   UserOutlined,
   LogoutOutlined,
