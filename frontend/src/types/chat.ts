@@ -1,27 +1,38 @@
-/** 会话 chat_session 完全对齐数据库 */
+/** 会话 VO，对齐后端 ChatSessionVO */
 export interface ChatSession {
     id: number
-    userId: number
+    userId?: number
     appId: number | null
     sessionTitle: string | null
     lastMessagePreview: string | null
     messageCount: number
     lastMessageTime: string | null
     createTime: string
-    updateTime: string
-    // 移除 isTop 字段
+    updateTime?: string
 }
 
-/** 消息 chat_message 完全对齐数据库 */
+/** 消息 VO，对齐后端 ChatMessageVO */
 export interface ChatMessage {
     id: number
     sessionId: number
-    appId: number | null
+    appId?: number | null
     messageType: 'user' | 'ai'
     content: string
     createTime: string
-    updateTime: string
-    isDeleted: number
+    updateTime?: string
+    isDeleted?: number
+}
+
+/** POST /api/chat/save 返回体 */
+export interface ChatSaveVO {
+    sessionId: number
+    messageId: number
+}
+
+/** GET /api/chat/memory/{sessionId} */
+export interface ChatMemoryMessage {
+    role: string
+    content: string
 }
 
 /** 聊天历史游标分页返回体（api.md标准结构） */

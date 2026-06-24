@@ -27,6 +27,7 @@ export interface WorkflowParams {
   prompt: string
   appId?: number
   sessionId?: number
+  generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW'
 }
 
 export interface WorkflowResult {

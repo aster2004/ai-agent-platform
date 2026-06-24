@@ -11,7 +11,7 @@ function streamHeaders(): HeadersInit {
 }
 
 export function generateCode(data: CodeGenParams) {
-  return request.post<any, Result<CodeGenVO>>('/codegen/generate', data)
+  return request.post<any, Result<CodeGenVO>>('/api/codegen/generate', data)
 }
 
 export function generateCodeStream(data: CodeGenParams): Promise<Response> {
@@ -23,7 +23,7 @@ export function generateCodeStream(data: CodeGenParams): Promise<Response> {
 }
 
 export function executeWorkflow(data: WorkflowParams) {
-  return request.post<any, Result<WorkflowResult>>('/codegen/workflow', data)
+  return request.post<any, Result<WorkflowResult>>('/api/codegen/workflow', data)
 }
 
 export function executeWorkflowStream(data: WorkflowParams): Promise<Response> {
