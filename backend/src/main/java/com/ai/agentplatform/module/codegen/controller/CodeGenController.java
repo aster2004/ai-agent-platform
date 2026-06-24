@@ -2,6 +2,8 @@ package com.ai.agentplatform.module.codegen.controller;
 
 import com.ai.agentplatform.common.result.Result;
 import com.ai.agentplatform.module.codegen.constant.CodeGenConstant;
+import com.ai.agentplatform.module.codegen.dto.CodeGenAsyncRequest;
+import com.ai.agentplatform.module.codegen.dto.CodeGenBatchRequest;
 import com.ai.agentplatform.module.codegen.dto.CodeGenRequest;
 import com.ai.agentplatform.module.codegen.service.CodeGenService;
 import com.ai.agentplatform.module.codegen.vo.CodeGenPageVO;
@@ -24,7 +26,7 @@ public class CodeGenController {
 
     /**
      * 1. 同步一次性生成完整代码
-     * TODO D3迭代：移除@PermitAll，开启全局JWT登录鉴权
+     * JWT 鉴权由 CodeGenSecurityConfig + 成员1 JwtAuthFilter 统一处理
      */
     @PostMapping("/generate")
     @Operation(summary = "同步代码生成", description = "一次性调用大模型返回完整代码，自动入库生成记录")
@@ -35,7 +37,7 @@ public class CodeGenController {
 
     /**
      * 2. SSE长连接流式分段生成代码
-     * TODO D3迭代：移除@PermitAll，开启全局JWT登录鉴权
+     * JWT 鉴权由 CodeGenSecurityConfig + 成员1 JwtAuthFilter 统一处理
      */
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "SSE流式代码生成", description = "长连接实时分片推送代码片段，全部输出完成自动入库")
@@ -45,7 +47,7 @@ public class CodeGenController {
 
     /**
      * 3. 分页查询当前用户代码生成历史记录
-     * TODO D3迭代：移除@PermitAll，开启全局JWT登录鉴权
+     * JWT 鉴权由 CodeGenSecurityConfig + 成员1 JwtAuthFilter 统一处理
      */
     @GetMapping("/record/list")
     @Operation(summary = "分页查询生成记录", description = "分页查询当前登录用户所有代码生成记录")
@@ -64,16 +66,17 @@ public class CodeGenController {
         return Result.success(pageVO);
     }
 
-    // ========== 预留迭代接口（D13系统优化阶段实现，当前仅占位） ==========
+    // ========== 预留迭代接口（D13系统优化阶段实现，当前返回 501） ==========
+
     @PostMapping("/batch")
-    @Operation(summary = "【预留】批量代码生成", description = "D13迭代开发，当前未实现")
-    public Result<String> batchGenerate() {
-        return Result.success("批量代码生成功能待迭代开发");
+    @Operation(summary = "【预留】批量代码生成", description = "D13迭代开发，当前返回 501 未实现")
+    public Result<String> batchGenerate(@Valid @RequestBody CodeGenBatchRequest request) {
+        return Result.fail(501, "批量代码生成功能将在 D13 迭代中实现");
     }
 
     @PostMapping("/async")
-    @Operation(summary = "【预留】后台异步代码生成", description = "D13迭代开发，当前未实现")
-    public Result<String> asyncGenerate() {
-        return Result.success("后台异步生成功能待迭代开发");
+    @Operation(summary = "【预留】后台异步代码生成", description = "D13迭代开发，当前返回 501 未实现")
+    public Result<String> asyncGenerate(@Valid @RequestBody CodeGenAsyncRequest request) {
+        return Result.fail(501, "后台异步生成功能将在 D13 迭代中实现");
     }
 }

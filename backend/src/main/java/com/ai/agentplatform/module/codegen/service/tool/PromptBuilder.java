@@ -1,6 +1,9 @@
 package com.ai.agentplatform.module.codegen.service.tool;
 
+import com.ai.agentplatform.module.codegen.dto.CodeGenRequest;
 import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
+import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategy;
+import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategyFactory;
 import jakarta.annotation.Resource;
 import org.springframework.stereotype.Component;
 import java.util.List;
@@ -11,45 +14,43 @@ public class PromptBuilder {
     @Resource
     private AppSyncHelper appSyncHelper;
 
+    @Resource
+    private CodeGenStrategyFactory strategyFactory;
+
     /**
-     * 拼接完整大模型Prompt
+     * 构建完整 Prompt（系统规则 + 类型约束 + 策略专属格式 + 历史上下文 + 用户需求）
+     *
+     * @param request      前端请求参数（含 prompt、generateType、appId 等）
+     * @param chatHistory  多轮对话历史文本列表
+     * @return 拼接后的最终 Prompt
      */
-    public String buildPrompt(String userPrompt, String generateType, Long appId, List<String> chatHistory) {
-        // 1. 获取应用系统提示词（Mock）
+    public String buildPrompt(CodeGenRequest request, List<String> chatHistory) {
+        Long appId = request.getAppId();
+        String generateType = request.getGenerateType();
+
+        // 1. 应用自定义系统提示（当前为 Mock，D5 改为真实查询）
         AppSyncHelper.AppConfigDTO appConfig = appSyncHelper.getAppConfig(appId);
-        String systemPrompt = appConfig.getPromptTemplate();
-        // 修复：之前写的system变量不存在，统一用systemPrompt
-        String system = systemPrompt;
+        String system = appConfig.getPromptTemplate();
 
-        // 2. 根据生成类型追加专属约束
-        switch (generateType) {
-            case "HTML":
-                system += " 纯HTML+内联CSS，不引入外部JS框架";
-                break;
-            case "VUE":
-                system += " Vue3组合式API，Element Plus规范代码";
-                break;
-            case "MULTI_FILE":
-                system += " 分文件输出，标注每个文件路径与内容";
-                break;
-            case "WORKFLOW":
-                system += " 输出LangGraph工作流节点代码";
-                break;
-            default:
-                system += " 标准业务代码，结构清晰";
+        // 2. 由策略补充类型专属格式约束（替代原来的 switch，策略自行决定追加内容）
+        CodeGenStrategy strategy = strategyFactory.getStrategy(generateType);
+        system = strategy.buildSpecialPrompt(system, request);
+
+        // 3. 超长文本截断
+        String safeUserPrompt = request.getPrompt();
+        if (safeUserPrompt.length() > 5000) {
+            safeUserPrompt = safeUserPrompt.substring(0, 5000) + "...";
         }
-
-        // 3. 超长文本截断（上限5000字符）
-        String safeUserPrompt = userPrompt.length() > 5000 ? userPrompt.substring(0,5000)+"..." : userPrompt;
 
         // 4. 拼接历史对话
         StringBuilder historyText = new StringBuilder();
-        if (!chatHistory.isEmpty()) {
+        if (chatHistory != null && !chatHistory.isEmpty()) {
             historyText.append("历史对话：");
             chatHistory.forEach(item -> historyText.append(item).append("；"));
         }
 
-        // 5. 最终完整prompt
-        return String.format("【系统规则】%s\n【历史上下文】%s\n【用户需求】%s", system, historyText, safeUserPrompt);
+        // 5. 最终完整 Prompt
+        return String.format("【系统规则】%s\n【历史上下文】%s\n【用户需求】%s",
+                system, historyText, safeUserPrompt);
     }
 }

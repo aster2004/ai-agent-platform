@@ -10,6 +10,8 @@ import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
 import com.ai.agentplatform.module.codegen.service.helper.ChatHistoryHelper;
 import com.ai.agentplatform.module.codegen.service.tool.PromptBuilder;
 import com.ai.agentplatform.module.codegen.service.tool.SseEmitterUtil;
+import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategy;
+import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategyFactory;
 import com.ai.agentplatform.module.codegen.util.CurrentUserUtil;
 import com.ai.agentplatform.module.codegen.util.ParamFillUtil;
 import com.ai.agentplatform.module.codegen.vo.CodeGenPageVO;
@@ -27,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 
 @Slf4j
 @Service
@@ -48,71 +51,133 @@ public class CodeGenServiceImpl implements CodeGenService {
     private SseEmitterUtil sseUtil;
     @Resource
     private CodeGenerateMapper mapper;
+    @Resource
+    private CodeGenStrategyFactory strategyFactory;
+    @Resource(name = "codeGenStreamExecutor")
+    private Executor streamExecutor;
 
-    /** 同步生成 修复类型不匹配：接收 ChatResponse */
+    /** 同步生成 */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CodeGenVO generateSync(CodeGenRequest request) {
         Long userId = CurrentUserUtil.getCurrentUserId();
         Long realAppId = paramFillUtil.fillAppId(request.getAppId());
         String realModel = paramFillUtil.fillModel(request.getModelName());
+        String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
         Long sessionId = request.getSessionId();
 
         List<String> history = chatHelper.loadChatHistory(sessionId);
-        String fullPrompt = promptBuilder.buildPrompt(request.getPrompt(), request.getGenerateType(), realAppId, history);
+        String fullPrompt = promptBuilder.buildPrompt(request, history);
 
         List<ChatMessage> messageList = new ArrayList<>();
         messageList.add(UserMessage.from(fullPrompt));
 
         long startTime = System.currentTimeMillis();
-        ChatModel chatModel = modelFactory.getChatModel(realModel);
-        // 修复：chat返回 ChatResponse，不再用 Response<AiMessage>
-        ChatResponse chatResponse = chatModel.chat(messageList);
-        String fullResult = chatResponse.aiMessage().text();
-        long costTime = System.currentTimeMillis() - startTime;
+        try {
+            ChatModel chatModel = modelFactory.getChatModel(realModel);
+            ChatResponse chatResponse = chatModel.chat(messageList);
+            String aiRawText = chatResponse.aiMessage().text();
+            // 通过策略解析多文件/单文件
+            CodeGenStrategy strategy = strategyFactory.getStrategy(realGenerateType);
+            String fullResult = strategy.parseResult(aiRawText);
+            long costTime = System.currentTimeMillis() - startTime;
 
-        CodeGenerate record = new CodeGenerate();
-        record.setUserId(userId);
-        record.setAppId(realAppId);
-        record.setSessionId(sessionId);
-        record.setPrompt(request.getPrompt());
-        record.setCodeContent(fullResult);
-        record.setModelName(realModel);
-        record.setGenerateType(request.getGenerateType());
-        record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
-        record.setCostTokens(fullResult.length());
-        record.setDuration((int) costTime);
-        record.setWorkflowStep("");
-        mapper.insert(record);
-        appSyncHelper.syncCodeToApp(realAppId, fullResult);
+            CodeGenerate record = new CodeGenerate();
+            record.setUserId(userId);
+            record.setAppId(realAppId);
+            record.setSessionId(sessionId);
+            record.setPrompt(request.getPrompt());
+            record.setCodeContent(fullResult);
+            record.setModelName(realModel);
+            record.setGenerateType(realGenerateType);
+            record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+            record.setCostTokens(fullResult.length());
+            record.setDuration((int) costTime);
+            record.setWorkflowStep("");
+            mapper.insert(record);
+            appSyncHelper.syncCodeToApp(realAppId, fullResult);
 
-        CodeGenVO vo = new CodeGenVO();
-        vo.setId(record.getId());
-        vo.setPrompt(record.getPrompt());
-        vo.setCodeContent(fullResult);
-        vo.setModelName(realModel);
-        vo.setGenerateType(record.getGenerateType());
-        vo.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
-        vo.setCostTokens(record.getCostTokens());
-        vo.setDuration(record.getDuration());
-        vo.setCreateTime(record.getCreateTime());
-        vo.setErrorMsg(null);
-        vo.setWorkflowStep("");
-        return vo;
+            CodeGenVO vo = new CodeGenVO();
+            vo.setId(record.getId());
+            vo.setPrompt(record.getPrompt());
+            vo.setCodeContent(fullResult);
+            vo.setModelName(realModel);
+            vo.setGenerateType(record.getGenerateType());
+            vo.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+            vo.setCostTokens(record.getCostTokens());
+            vo.setDuration(record.getDuration());
+            vo.setCreateTime(record.getCreateTime());
+            vo.setErrorMsg(null);
+            vo.setWorkflowStep("");
+            return vo;
+        } catch (Exception e) {
+            long costTime = System.currentTimeMillis() - startTime;
+            log.error("[同步生成失败] userId={}, model={}, generateType={}, 耗时={}ms",
+                    userId, realModel, realGenerateType, costTime, e);
+            return buildFailRecordAndVo(userId, realAppId, sessionId, request.getPrompt(),
+                    realModel, realGenerateType, e.getMessage(), costTime);
+        }
+    }
+
+    /**
+     * 构建生成失败记录入库，返回含错误信息的 VO
+     */
+    private CodeGenVO buildFailRecordAndVo(Long userId, Long appId, Long sessionId,
+                                           String prompt, String modelName, String generateType,
+                                           String errorMsg, long costTime) {
+        CodeGenerate failRecord = new CodeGenerate();
+        failRecord.setUserId(userId);
+        failRecord.setAppId(appId);
+        failRecord.setSessionId(sessionId);
+        failRecord.setPrompt(prompt);
+        failRecord.setCodeContent(null);
+        failRecord.setModelName(modelName);
+        failRecord.setGenerateType(generateType);
+        failRecord.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_FAILED);
+        failRecord.setErrorMsg(truncateErrorMsg(errorMsg));
+        failRecord.setDuration((int) costTime);
+        failRecord.setWorkflowStep("");
+        try {
+            mapper.insert(failRecord);
+        } catch (Exception dbEx) {
+            log.error("[同步生成] 失败记录入库异常", dbEx);
+        }
+
+        CodeGenVO failVO = new CodeGenVO();
+        failVO.setId(failRecord.getId());
+        failVO.setPrompt(prompt);
+        failVO.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_FAILED);
+        failVO.setErrorMsg(failRecord.getErrorMsg());
+        failVO.setDuration(failRecord.getDuration());
+        failVO.setModelName(modelName);
+        failVO.setGenerateType(generateType);
+        failVO.setCreateTime(failRecord.getCreateTime());
+        return failVO;
+    }
+
+    /**
+     * 截断错误信息到数据库字段上限（varchar 500）
+     */
+    private String truncateErrorMsg(String msg) {
+        if (msg == null || msg.isBlank()) {
+            return "未知错误";
+        }
+        return msg.length() > 500 ? msg.substring(0, 497) + "..." : msg;
     }
 
     /** 流式生成 完全匹配接口三个方法：onNext / onCompleteResponse / onError */
     @Override
     public SseEmitter generateStream(CodeGenRequest request) {
         SseEmitter emitter = sseUtil.createEmitter();
-        new Thread(() -> {
+        streamExecutor.execute(() -> {
             try {
                 Long userId = CurrentUserUtil.getCurrentUserId();
                 Long realAppId = paramFillUtil.fillAppId(request.getAppId());
                 String realModel = paramFillUtil.fillModel(request.getModelName());
+                String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
                 Long sessionId = request.getSessionId();
                 List<String> history = chatHelper.loadChatHistory(sessionId);
-                String fullPrompt = promptBuilder.buildPrompt(request.getPrompt(), request.getGenerateType(), realAppId, history);
+                String fullPrompt = promptBuilder.buildPrompt(request, history);
 
                 List<ChatMessage> messageList = new ArrayList<>();
                 messageList.add(UserMessage.from(fullPrompt));
@@ -134,25 +199,29 @@ public class CodeGenServiceImpl implements CodeGenService {
                     }
 
                     // 完成回调
+
                     @Override
                     public void onCompleteResponse(ChatResponse response) {
                         try {
                             long costMs = System.currentTimeMillis() - startTimestamp;
-                            String totalText = fullContent.toString();
+                            String aiRawText = fullContent.toString();
+                            // 策略解析多文件/单文件
+                            CodeGenStrategy strategy = strategyFactory.getStrategy(realGenerateType);
+                            String totalText = strategy.parseResult(aiRawText);
+
                             CodeGenerate record = new CodeGenerate();
                             record.setUserId(userId);
                             record.setAppId(realAppId);
                             record.setSessionId(sessionId);
                             record.setPrompt(request.getPrompt());
+                            // 存储解析后的完整JSON字符串
                             record.setCodeContent(totalText);
                             record.setModelName(realModel);
-                            record.setGenerateType(request.getGenerateType());
+                            record.setGenerateType(realGenerateType);
                             record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
                             record.setCostTokens(totalText.length());
                             record.setDuration((int) costMs);
-                           // record.setTemperature(request.getTemperature());
-                           // record.setMaxTokens(request.getMaxTokens());
-                            record.setWorkflowStep("");
+                            record.setWorkflowStep("BASIC_CODE_GEN");
                             mapper.insert(record);
                             appSyncHelper.syncCodeToApp(realAppId, totalText);
                             sseUtil.sendFinish(emitter);
@@ -163,7 +232,6 @@ public class CodeGenServiceImpl implements CodeGenService {
                             } catch (Exception ignored) {}
                         }
                     }
-
                     // 异常回调
                     @Override
                     public void onError(Throwable throwable) {
@@ -179,7 +247,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                     sseUtil.sendError(emitter, globalEx.getMessage());
                 } catch (Exception ignored) {}
             }
-        }).start();
+        });
         return emitter;
     }
 
