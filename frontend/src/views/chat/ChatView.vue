@@ -8,7 +8,7 @@
       </svg>
     </button>
 
-    <!-- 【关键修复】绑定点击事件 @click="handleCreateSession" -->
+    <!-- 新建会话按钮 -->
     <button class="create-btn-fixed" @click="handleCreateSession">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3f3f46" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 20h9"></path>
@@ -78,8 +78,10 @@ async function loadMsg(sessionId: number) {
     if (res.code === 200) {
       msgList.value = res.data.list
       await nextTick()
+      // 先判断DOM不为空，再赋值，解决TS2779报错
       if (msgListRef.value) {
-        msgListRef.value.scrollTop = msgListRef.value.scrollHeight
+        const dom = msgListRef.value
+        dom.scrollTop = dom.scrollHeight
       }
     }
   } finally {
