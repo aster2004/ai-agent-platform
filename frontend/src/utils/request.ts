@@ -3,7 +3,8 @@ import { message } from 'ant-design-vue'
 
 // 通用axios实例（全模块共用，适配7人所有业务）
 const request = axios.create({
-    baseURL: import.meta.env.VITE_API_URL,
+    // 开发环境走 vite proxy：URL 使用 /api/... 前缀，baseURL 留空
+    baseURL: import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '',
     timeout: 20000
 })
 

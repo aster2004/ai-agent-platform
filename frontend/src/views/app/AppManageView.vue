@@ -207,10 +207,7 @@ const columns = computed(() => {
 })
 
 function canManageApp(record: AppVO) {
-  if (!isAdmin.value) {
-    return true
-  }
-  return record.userId === userStore.userId
+  return isAdmin.value || record.userId === userStore.userId
 }
 
 async function loadList() {

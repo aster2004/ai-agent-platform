@@ -83,6 +83,7 @@ const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const homeInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const CURRENT_USER_ID = 1
 const APP_ID = 1
+const DEFAULT_GENERATE_TYPE = 'HTML' as const
 
 const showSidebar = ref(true)
 const pendingNewSessionId = ref<number | null>(null)
@@ -163,7 +164,12 @@ async function runWorkflow(sessionId: number, content: string) {
   await scrollToBottom()
 
   try {
-    const response = await executeWorkflowStream({ prompt: content, sessionId, appId: APP_ID })
+    const response = await executeWorkflowStream({
+      prompt: content,
+      sessionId,
+      appId: APP_ID,
+      generateType: 'WORKFLOW',
+    })
     await readSseStream(response, (eventName, data) => {
       if (eventName !== 'workflow') return
       try {
@@ -204,7 +210,12 @@ async function runQuickGenerationSync(sessionId: number, content: string) {
   await scrollToBottom()
 
   try {
-    const res = await generateCode({ prompt: content, sessionId, appId: APP_ID })
+    const res = await generateCode({
+      prompt: content,
+      sessionId,
+      appId: APP_ID,
+      generateType: DEFAULT_GENERATE_TYPE,
+    })
     const code = res.data?.codeContent
     if (code) {
       await saveAiMessage(sessionId, APP_ID, buildCodeContent(code))
@@ -221,7 +232,12 @@ async function runQuickGeneration(sessionId: number, content: string) {
   await scrollToBottom()
 
   try {
-    const response = await generateCodeStream({ prompt: content, sessionId, appId: APP_ID })
+    const response = await generateCodeStream({
+      prompt: content,
+      sessionId,
+      appId: APP_ID,
+      generateType: DEFAULT_GENERATE_TYPE,
+    })
     await readSseStream(response, (eventName, data) => {
       if (eventName === 'code_chunk') {
         streamingContent.value += data
@@ -347,7 +363,7 @@ async function handleCreateSession() {
   }
 
   const emptySession = sessionList.value.find(
-    s => s.sessionTitle === '新对话' && s.messageCount === 0,
+    s => (!s.sessionTitle || s.sessionTitle === '新对话') && s.messageCount === 0,
   )
   if (emptySession) {
     pendingNewSessionId.value = emptySession.id

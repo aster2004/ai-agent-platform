@@ -1,45 +1,83 @@
-// 移除 renameMockSession
-import { getMockSession, getMockMsg, sendMockMsg, saveMockAiMsg, deleteMockSession, createMockSession } from '@/mock/chat'
-import type { ChatSaveReq, ChatSession, ChatMessage, ChatHistoryRes } from '@/types/chat'
+import request from '@/utils/request'
+import type {
+  ChatSaveReq,
+  ChatSession,
+  ChatHistoryRes,
+  ChatSaveVO,
+  ChatMemoryMessage,
+} from '@/types/chat'
+import type { PageResult, Result } from '@/types/common'
+
+type ApiResult<T> = Result<T>
 
 /**
- * 7.1 获取当前用户全部会话
- * GET /api/chat/session/list
+ * GET /api/chat/sessions
  */
-export function getSessionList(): Promise<{ code: number; message: string; data: ChatSession[] }> {
-    return getMockSession()
+export async function getSessionList(appId?: number): Promise<ApiResult<ChatSession[]>> {
+  const res = await request.get<any, ApiResult<PageResult<ChatSession>>>('/api/chat/sessions', {
+    params: { appId, page: 1, size: 50 },
+  })
+  return {
+    code: res.code,
+    message: res.message,
+    data: res.data?.content ?? [],
+  }
 }
 
 /**
- * 7.3 根据会话ID获取历史消息 游标分页
  * GET /api/chat/history
  */
-export function getHistoryMsg(sessionId: number): Promise<{ code: number; message: string; data: ChatHistoryRes }> {
-    console.log('查询会话id：', sessionId)
-    return getMockMsg(sessionId)
+export function getHistoryMsg(
+  sessionId: number,
+  cursor?: number,
+  size = 50,
+): Promise<ApiResult<ChatHistoryRes>> {
+  return request.get<any, ApiResult<ChatHistoryRes>>('/api/chat/history', {
+    params: { sessionId, cursor, size },
+  })
 }
 
 /**
- * 7.2 发送消息 / 新建会话共用接口 POST /api/chat/save
+ * POST /api/chat/save
  */
-export function saveChatMessage(params: ChatSaveReq): Promise<{ code: number; message: string; data: ChatMessage }> {
-    return sendMockMsg(params.content, params.sessionId!, params.appId)
+export function saveChatMessage(params: ChatSaveReq): Promise<ApiResult<ChatSaveVO>> {
+  return request.post<any, ApiResult<ChatSaveVO>>('/api/chat/save', params)
 }
 
-export function saveAiMessage(sessionId: number, appId: number | null, content: string): Promise<{ code: number; message: string; data: ChatMessage }> {
-    return saveMockAiMsg(sessionId, appId, content)
+export function saveAiMessage(
+  sessionId: number,
+  appId: number | null,
+  content: string,
+): Promise<ApiResult<ChatSaveVO>> {
+  return saveChatMessage({
+    sessionId,
+    appId,
+    messageType: 'ai',
+    content,
+  })
 }
 
 /**
- * 7.4 删除会话 DELETE /api/chat/session/{id}
+ * DELETE /api/chat/session/{id}
  */
-export function deleteSession(sessionId: number): Promise<{ code: number; message: string; data: null }> {
-    return deleteMockSession(sessionId)
+export function deleteSession(sessionId: number): Promise<ApiResult<null>> {
+  return request.delete<any, ApiResult<null>>(`/api/chat/session/${sessionId}`)
 }
 
 /**
- * 新建会话接口
+ * POST /api/chat/session
  */
-export function createSession(userId: number, appId: number | null, title: string) {
-    return createMockSession(userId, appId, title)
+export function createSession(
+  _userId?: number,
+  appId?: number | null,
+  _title?: string,
+): Promise<ApiResult<ChatSession>> {
+  return request.post<any, ApiResult<ChatSession>>('/api/chat/session', { appId })
+}
+
+/**
+ * GET /api/chat/memory/{sessionId}（联调/调试用）
+ */
+export function getChatMemory(sessionId: number): Promise<ApiResult<ChatMemoryMessage[]>> {
+  return request.get<any, ApiResult<ChatMemoryMessage[]>>(`/api/chat/memory/${sessionId}`)
 }
