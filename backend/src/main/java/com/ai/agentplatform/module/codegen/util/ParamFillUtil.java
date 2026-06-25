@@ -41,9 +41,19 @@ public class ParamFillUtil {
     }
 
     /**
-     * 判断会话ID是否为空（无对话上下文）
+     * 填充生成类型：入参为空或非法值，默认返回 HTML 单文件
      */
-    public boolean sessionIdIsEmpty(Long sessionId) {
-        return sessionId == null;
+    public String fillGenerateType(String generateType) {
+        if (generateType == null || generateType.isBlank()) {
+            return CodeGenConstant.GENERATE_TYPE_HTML;
+        }
+        // 仅允许四种合法类型，非法值兜底 HTML
+        return switch (generateType.toUpperCase()) {
+            case CodeGenConstant.GENERATE_TYPE_HTML,
+                 CodeGenConstant.GENERATE_TYPE_VUE,
+                 CodeGenConstant.GENERATE_TYPE_MULTI_FILE,
+                 CodeGenConstant.GENERATE_TYPE_WORKFLOW -> generateType.toUpperCase();
+            default -> CodeGenConstant.GENERATE_TYPE_HTML;
+        };
     }
 }
