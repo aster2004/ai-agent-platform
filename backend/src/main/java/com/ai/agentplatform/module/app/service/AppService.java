@@ -1,6 +1,7 @@
 package com.ai.agentplatform.module.app.service;
 
 import com.ai.agentplatform.common.exception.BusinessException;
+import com.ai.agentplatform.common.util.SecurityUtils;
 import com.ai.agentplatform.module.app.dto.AppCodeUpdateRequest;
 import com.ai.agentplatform.module.app.dto.AppCreateRequest;
 import com.ai.agentplatform.module.app.dto.AppUpdateRequest;
@@ -72,7 +73,7 @@ public class AppService {
         App app = appRepository.findById(id)
                 .orElseThrow(() -> new BusinessException("应用不存在"));
         ensureAccessible(app);
-        if (!app.getUserId().equals(userId)) {
+        if (!app.getUserId().equals(userId) && !SecurityUtils.isAdmin()) {
             throw new BusinessException("无权操作该应用");
         }
         app.setAppName(request.getAppName());
@@ -105,8 +106,15 @@ public class AppService {
 
     @Transactional
     public void delete(Long id, Long userId) {
-        App app = appRepository.findByIdAndUserIdAndStatus(id, userId, STATUS_NORMAL)
-                .orElseThrow(() -> new BusinessException("应用不存在或无权操作"));
+        App app;
+        if (SecurityUtils.isAdmin()) {
+            app = appRepository.findById(id)
+                    .filter(a -> STATUS_NORMAL.equals(a.getStatus()))
+                    .orElseThrow(() -> new BusinessException("应用不存在或无权操作"));
+        } else {
+            app = appRepository.findByIdAndUserIdAndStatus(id, userId, STATUS_NORMAL)
+                    .orElseThrow(() -> new BusinessException("应用不存在或无权操作"));
+        }
         app.setStatus(STATUS_OFFLINE);
         appRepository.save(app);
     }

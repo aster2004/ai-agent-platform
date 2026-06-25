@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS `user` (
     `password`    VARCHAR(255) NOT NULL COMMENT '加密后的密码(BCrypt)',
     `nickname`    VARCHAR(50)  NULL COMMENT '用户昵称',
     `avatar`      VARCHAR(255) NULL COMMENT '头像地址',
+    `phone`       VARCHAR(20)  NULL COMMENT '手机号码',
+    `email`       VARCHAR(100) NULL COMMENT '电子邮箱',
     `role`        VARCHAR(20)  NOT NULL DEFAULT 'user' COMMENT '角色：user普通用户/admin管理员',
     `status`      VARCHAR(20)  NOT NULL DEFAULT 'normal' COMMENT '状态：normal正常/disabled禁用',
     `points`      INT          NOT NULL DEFAULT 0 COMMENT '积分/成长值',
@@ -29,7 +31,9 @@ CREATE TABLE IF NOT EXISTS `user` (
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_username` (`username`)
+    UNIQUE KEY `uk_username` (`username`),
+    UNIQUE KEY `uk_phone` (`phone`),
+    UNIQUE KEY `uk_email` (`email`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
 
 -- -----------------------------------------------------------------------------
@@ -118,6 +122,33 @@ CREATE TABLE IF NOT EXISTS `code_generate` (
     KEY `idx_session_id` (`session_id`),
     KEY `idx_generate_status` (`generate_status`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='代码生成记录表';
+
+-- -----------------------------------------------------------------------------
+-- 6. user_points_log 积分流水表（成员 1）
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `user_points_log` (
+                                                 `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '积分记录ID',
+                                                 `user_id`     BIGINT       NOT NULL COMMENT '用户ID',
+                                                 `points`      INT          NOT NULL COMMENT '变动积分',
+                                                 `type`        VARCHAR(50)  NOT NULL COMMENT '积分类型：REGISTER/SET_NICKNAME/BIND_PHONE/BIND_EMAIL/UPLOAD_AVATAR/CHECKIN_DAILY/CHECKIN_7DAYS/CHECKIN_30DAYS',
+                                                 `description` VARCHAR(200) NULL COMMENT '描述',
+                                                 `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                                 PRIMARY KEY (`id`),
+                                                 KEY `idx_user_id` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='积分流水表';
+
+-- -----------------------------------------------------------------------------
+-- 7. user_checkin 签到记录表（成员 1）
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `user_checkin` (
+                                              `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '签到记录ID',
+                                              `user_id`     BIGINT       NOT NULL COMMENT '用户ID',
+                                              `checkin_date` DATE        NOT NULL COMMENT '签到日期',
+                                              `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+                                              PRIMARY KEY (`id`),
+                                              KEY `idx_user_id` (`user_id`),
+                                              UNIQUE KEY `uk_user_date` (`user_id`, `checkin_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='签到记录表';
 
 -- -----------------------------------------------------------------------------
 -- Mock 测试数据（userId=1, appId=1）

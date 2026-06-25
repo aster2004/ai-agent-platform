@@ -2,10 +2,20 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>App Preview</title>
+  <title>Mock Preview</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center;
+           justify-content: center; min-height: 100vh; background: #f5f7fa; margin: 0; }
+    .card { background: #fff; padding: 48px; border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0,0,0,.08); text-align: center; }
+    h1 { color: #1677ff; margin: 0 0 12px; }
+    p { color: #666; margin: 0; }
+  </style>
 </head>
 <body>
-<div class="dashboard"><h1>数据看板</h1><p>欢迎使用数据分析工具</p></div>
+  <div class="card">
+    <h1>Hello Mock Preview</h1>
+    <p>并行开发期默认预览页，接入真实 app_code 后自动替换</p>
+  </div>
 </body>
 </html>

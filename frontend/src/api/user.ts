@@ -45,3 +45,21 @@ export function enableUser(id: number) {
 export function deleteUser(id: number) {
   return request.delete<any, Result<void>>(`/api/user/admin/${id}`)
 }
+
+export function checkin() {
+  return request.post<any, Result<{ success: boolean; message: string; consecutiveDays: number; todayPoints: number }>>('/api/user/checkin')
+}
+
+export function getCheckinStats() {
+  return request.get<any, Result<{ checkedInToday: boolean; consecutiveDays: number; totalCheckins: number; monthCheckins: number }>>('/api/user/checkin/stats')
+}
+
+export function getNewbieTasks() {
+  return request.get<any, Result<{
+    tasks: Array<{ name: string; points: number; description: string; type: string; completed: boolean }>
+    completedCount: number
+    totalCount: number
+    totalPoints: number
+    earnedPoints: number
+  }>>('/api/user/newbie-tasks')
+}

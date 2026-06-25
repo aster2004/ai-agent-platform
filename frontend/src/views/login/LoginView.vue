@@ -44,7 +44,7 @@ async function handleLogin() {
     const res = await login(form)
     userStore.setUser(res.data)
     message.success('登录成功')
-    router.push('/codegen')
+    router.push('/chat')
   } catch (e: any) {
     message.error(e.message || '登录失败')
   } finally {

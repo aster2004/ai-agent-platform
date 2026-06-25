@@ -20,14 +20,8 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('@/layouts/BasicLayout.vue'),
-      redirect: '/codegen',
+      redirect: '/chat',
       children: [
-        {
-          path: 'codegen',
-          name: 'CodeGen',
-          component: () => import('@/views/codegen/CodeGenView.vue'),
-          meta: { title: '代码生成' },
-        },
         {
           path: 'app',
           name: 'AppManage',
@@ -64,6 +58,12 @@ const router = createRouter({
           component: () => import('@/views/user/ProfileView.vue'),
           meta: { title: '个人信息' },
         },
+        {
+          path: 'chat',
+          name: 'Chat',
+          component: () => import('@/views/chat/ChatView.vue'),
+          meta: { title: '首页' }
+        }
       ],
     },
   ],

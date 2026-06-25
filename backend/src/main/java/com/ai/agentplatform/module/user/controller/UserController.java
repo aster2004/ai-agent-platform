@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 
+import java.util.Map;
+
 @Tag(name = "用户管理")
 @RestController
 @RequestMapping("/api/user")
@@ -130,5 +132,29 @@ public class UserController {
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
                 .body(content);
+    }
+
+    @Operation(summary = "用户签到")
+    @PostMapping("/checkin")
+    public Result<Map<String, Object>> checkin() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.success(userService.checkin(userId));
+    }
+
+    @Operation(summary = "获取签到统计")
+    @GetMapping("/checkin/stats")
+    public Result<Map<String, Object>> getCheckinStats() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.success(userService.getCheckinStats(userId));
+    }
+
+    @Operation(summary = "获取新手任务")
+    @GetMapping("/newbie-tasks")
+    public Result<Map<String, Object>> getNewbieTasks() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.success(userService.getNewbieTasks(userId));
     }
 }

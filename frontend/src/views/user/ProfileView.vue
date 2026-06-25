@@ -65,15 +65,76 @@
         </div>
       </div>
     </a-card>
+
+    <div class="section-row">
+      <a-card title="每日签到" class="section-card">
+        <div class="checkin-content">
+          <div class="checkin-main">
+            <template v-if="checkinStats.checkedInToday">
+              <a-tag color="green">今日已签到</a-tag>
+              <a-divider />
+              <p>连续签到 <span class="highlight">{{ checkinStats.consecutiveDays }}</span> 天</p>
+              <p>本月签到 <span class="highlight">{{ checkinStats.monthCheckins }}</span> 天</p>
+              <p>累计签到 <span class="highlight">{{ checkinStats.totalCheckins }}</span> 天</p>
+            </template>
+            <template v-else>
+              <a-button type="primary" size="large" @click="doCheckin">
+                <template #icon><CalendarOutlined /></template>
+                签到
+              </a-button>
+              <a-divider />
+              <p>连续签到 <span class="highlight">{{ checkinStats.consecutiveDays }}</span> 天</p>
+              <p>本月签到 <span class="highlight">{{ checkinStats.monthCheckins }}</span> 天</p>
+              <p>累计签到 <span class="highlight">{{ checkinStats.totalCheckins }}</span> 天</p>
+            </template>
+          </div>
+          <div class="checkin-rules">
+            <h4>签到规则</h4>
+            <ul>
+              <li>每日签到 +5 积分</li>
+              <li>连续签到7天额外 +20 积分</li>
+              <li>连续签到30天额外 +100 积分</li>
+            </ul>
+          </div>
+        </div>
+      </a-card>
+
+      <a-card title="新手任务" class="section-card">
+        <div class="progress-info">
+          <span>进度：{{ newbieTasks.completedCount }}/{{ newbieTasks.totalCount }}</span>
+          <span>已获得：{{ newbieTasks.earnedPoints }}/{{ newbieTasks.totalPoints }} 积分</span>
+        </div>
+        <a-progress :percent="(newbieTasks.completedCount / newbieTasks.totalCount) * 100" :show-info="false" />
+        <a-list :data-source="newbieTasks.tasks" class="task-list">
+          <template #renderItem="{ item }">
+            <a-list-item>
+              <a-list-item-meta>
+                <template #title>
+                  <span>{{ item.name }}</span>
+                  <a-tag :color="item.completed ? 'green' : 'default'" class="task-tag">
+                    {{ item.completed ? '已完成' : '未完成' }}
+                  </a-tag>
+                </template>
+                <template #description>{{ item.description }}</template>
+              </a-list-item-meta>
+              <span class="task-points">+{{ item.points }} 积分</span>
+              <template v-if="item.completed">
+                <CheckCircleOutlined class="completed-icon" />
+              </template>
+            </a-list-item>
+          </template>
+        </a-list>
+      </a-card>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { UserOutlined } from '@ant-design/icons-vue'
+import { UserOutlined, CalendarOutlined, CheckCircleOutlined } from '@ant-design/icons-vue'
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
-import { uploadAvatar, updateProfile, getCurrentUser } from '@/api/user'
+import { uploadAvatar, updateProfile, getCurrentUser, checkin, getCheckinStats, getNewbieTasks } from '@/api/user'
 
 const userStore = useUserStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -87,6 +148,21 @@ const editPhone = ref('')
 const editingEmail = ref(false)
 const editEmail = ref('')
 
+const checkinStats = ref({
+  checkedInToday: false,
+  consecutiveDays: 0,
+  totalCheckins: 0,
+  monthCheckins: 0
+})
+
+const newbieTasks = ref({
+  tasks: [],
+  completedCount: 0,
+  totalCount: 0,
+  totalPoints: 0,
+  earnedPoints: 0
+})
+
 onMounted(async () => {
   try {
     const res = await getCurrentUser()
@@ -97,7 +173,51 @@ onMounted(async () => {
   } catch (e: any) {
     message.error(e.message || '获取用户信息失败')
   }
+  loadCheckinStats()
+  loadNewbieTasks()
 })
+
+async function loadCheckinStats() {
+  try {
+    const res = await getCheckinStats()
+    checkinStats.value = res.data
+  } catch (e: any) {
+    console.error('loadCheckinStats error:', e)
+  }
+}
+
+async function loadNewbieTasks() {
+  try {
+    const res = await getNewbieTasks()
+    newbieTasks.value = res.data
+  } catch (e: any) {
+    console.error('loadNewbieTasks error:', e)
+  }
+}
+
+async function doCheckin() {
+  try {
+    const res = await checkin()
+    message.success(res.data.message)
+    await loadCheckinStats()
+    await loadUserInfo()
+  } catch (e: any) {
+    message.error(e.message || '签到失败')
+  }
+}
+
+async function loadUserInfo() {
+  try {
+    const res = await getCurrentUser()
+    const user = res.data
+    userStore.points = user.points
+    userStore.level = user.level
+    localStorage.setItem('points', String(user.points))
+    localStorage.setItem('level', user.level)
+  } catch (e: any) {
+    console.error('loadUserInfo error:', e)
+  }
+}
 
 function triggerFileInput() {
   fileInputRef.value?.click()
@@ -117,6 +237,8 @@ async function handleAvatarChange(e: Event) {
     userStore.avatar = avatarUrl
     localStorage.setItem('avatar', avatarUrl)
     message.success('头像上传成功')
+    await loadNewbieTasks()
+    await loadUserInfo()
   } catch (e: any) {
     message.error(e.message || '上传失败')
   }
@@ -124,7 +246,6 @@ async function handleAvatarChange(e: Event) {
 }
 
 function startEditNickname() {
-  console.log('startEditNickname called, nickname:', nickname.value)
   editNickname.value = nickname.value || ''
   editingNickname.value = true
 }
@@ -138,10 +259,8 @@ async function saveNickname() {
     message.warning('昵称不能为空')
     return
   }
-  console.log('saveNickname called, editNickname:', editNickname.value)
   try {
     const res = await updateProfile({ nickname: editNickname.value.trim() })
-    console.log('updateProfile result:', res)
     if (res && res.data) {
       nickname.value = res.data.nickname || res.data.username
     } else {
@@ -151,8 +270,9 @@ async function saveNickname() {
     localStorage.setItem('nickname', nickname.value)
     editingNickname.value = false
     message.success('昵称更新成功')
+    await loadNewbieTasks()
+    await loadUserInfo()
   } catch (e: any) {
-    console.error('saveNickname error:', e)
     message.error(e.message || '更新失败')
   }
 }
@@ -179,8 +299,9 @@ async function savePhone() {
     }
     editingPhone.value = false
     message.success('手机号绑定成功')
+    await loadNewbieTasks()
+    await loadUserInfo()
   } catch (e: any) {
-    console.error('savePhone error:', e)
     message.error(e.message || '绑定失败')
   }
 }
@@ -207,8 +328,9 @@ async function saveEmail() {
     }
     editingEmail.value = false
     message.success('邮箱绑定成功')
+    await loadNewbieTasks()
+    await loadUserInfo()
   } catch (e: any) {
-    console.error('saveEmail error:', e)
     message.error(e.message || '绑定失败')
   }
 }
@@ -221,6 +343,7 @@ async function saveEmail() {
 
 .profile-card {
   border-radius: 8px;
+  margin-bottom: 24px;
 }
 
 .profile-content {
@@ -249,5 +372,81 @@ async function saveEmail() {
 
 .info-section {
   flex: 1;
+}
+
+.section-row {
+  display: flex;
+  gap: 24px;
+}
+
+.section-card {
+  flex: 1;
+  border-radius: 8px;
+}
+
+.checkin-content {
+  display: flex;
+  gap: 32px;
+}
+
+.checkin-main {
+  flex: 1;
+  text-align: center;
+  padding-top: 16px;
+}
+
+.highlight {
+  font-size: 20px;
+  font-weight: bold;
+  color: #1890ff;
+}
+
+.checkin-rules {
+  width: 200px;
+  padding-left: 16px;
+  border-left: 1px solid #f0f0f0;
+}
+
+.checkin-rules h4 {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.checkin-rules ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.checkin-rules li {
+  padding: 6px 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.task-list {
+  margin-top: 16px;
+}
+
+.task-tag {
+  margin-left: 8px;
+}
+
+.task-points {
+  color: #faad14;
+  font-weight: bold;
+}
+
+.completed-icon {
+  color: #52c41a;
+  font-size: 18px;
+  margin-left: 8px;
 }
 </style>

@@ -74,8 +74,8 @@ async function handleGenerateSync() {
   }
   generating.value = true
   try {
-    const res = await generateCode({ prompt: prompt.value })
-    result.value = res.data
+    const res = await generateCode({ prompt: prompt.value, generateType: 'HTML' })
+    result.value = res.data?.codeContent ?? ''
   } catch (e: any) {
     message.error(e.message || '生成失败')
   } finally {

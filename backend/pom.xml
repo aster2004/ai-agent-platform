@@ -38,6 +38,16 @@
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
+	<!-- 成员4的添加1 -->
+	<repositories>
+		<repository>
+			<id>central</id>
+			<name>Maven Central</name>
+			<url>https://repo1.maven.org/maven2/</url>
+			<releases><enabled>true</enabled></releases>
+			<snapshots><enabled>false</enabled></snapshots>
+		</repository>
+	</repositories>
 
 	<dependencies>
 		<!-- Spring Boot -->
@@ -63,7 +73,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-redis</artifactId>
 		</dependency>
-
+		<!-- 成员4的添加2：MyBatis SpringBoot整合依赖-->
+		<dependency>
+			<groupId>org.mybatis.spring.boot</groupId>
+			<artifactId>mybatis-spring-boot-starter</artifactId>
+			<version>3.0.4</version>
+		</dependency>
 		<!-- Spring Security -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -121,6 +136,13 @@
 		<dependency>
 			<groupId>org.bsc.langgraph4j</groupId>
 			<artifactId>langgraph4j-langchain4j</artifactId>
+		</dependency>
+
+		<!-- Selenium（成员3 封面截图 P2，CoverScreenshotService 编译需要） -->
+		<dependency>
+			<groupId>org.seleniumhq.selenium</groupId>
+			<artifactId>selenium-java</artifactId>
+			<version>4.27.0</version>
 		</dependency>
 
 		<!-- Utils -->
