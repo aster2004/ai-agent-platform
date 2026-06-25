@@ -1,6 +1,6 @@
 <template>
   <!-- 不再根据isHome切换样式，统一使用卡片布局 -->
-  <div class="input-area home-input">
+  <div class="input-area home-input" :class="{ compact }">
     <textarea
         v-model="text"
         @keydown.enter.prevent="handleSend"
@@ -29,7 +29,7 @@
           :class="{ active: runMode === 'deep' }"
           @click="selectDeepMode"
       >
-        深度工作流
+        深度分析
       </button>
       <template v-if="runMode === 'fast'">
         <span class="mode-divider" />
@@ -53,15 +53,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, defineEmits, defineProps } from 'vue'
+import { ref } from 'vue'
 import type { GenerationOutput } from '@/types/codegen'
 
-const { isHome } = defineProps({
+const props = defineProps({
   isHome: {
     type: Boolean,
-    default: false
-  }
+    default: false,
+  },
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 })
+
+const { isHome, compact } = props
 
 const text = ref('')
 const runMode = ref<'fast' | 'deep'>('fast')
@@ -111,6 +117,7 @@ defineExpose({ setText, setMode, getMode, getOutput })
 /* 全局统一使用首页卡片样式，删除底部窄输入框样式 */
 .input-area {
   width: 720px;
+  max-width: 100%;
   padding: 24px;
   gap: 0;
   background: #ffffff;
@@ -120,6 +127,38 @@ defineExpose({ setText, setMode, getMode, getOutput })
   position: relative;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+}
+
+.input-area.compact {
+  width: 100%;
+  padding: 12px 14px 10px;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(174, 167, 255, 0.06);
+}
+
+.input-area.compact textarea {
+  height: 88px;
+  padding: 10px 52px 10px 10px;
+  font-size: 14px;
+}
+
+.input-area.compact .send-btn-inner {
+  right: 14px;
+  bottom: 52px;
+  width: 36px;
+  height: 36px;
+}
+
+.input-area.compact .mode-buttons {
+  gap: 6px;
+  padding: 4px 0 0 4px;
+  flex-wrap: wrap;
+}
+
+.input-area.compact .mode-btn {
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 textarea {

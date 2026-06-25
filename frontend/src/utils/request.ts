@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { message } from 'ant-design-vue'
+import { EXPIRED_MSG, handleSessionExpired } from '@/utils/authSession'
 
 // 通用axios实例（全模块共用，适配7人所有业务）
 const request = axios.create({
@@ -57,12 +58,9 @@ request.interceptors.response.use(
             return Promise.reject(err)
         }
         const { status, data } = response
-        // 401 Token过期未登录
+        // 401 Token 过期或未登录
         if (status === 401) {
-            localStorage.removeItem('token')
-            localStorage.removeItem('userInfo')
-            message.error(data.message || '登录已过期，请重新登录')
-            window.location.href = '/login'
+            handleSessionExpired(data?.message || EXPIRED_MSG)
             return Promise.reject(err)
         }
         // 403 权限不足
@@ -134,12 +132,12 @@ export function chatSSE<T>(
     }).then(async (res) => {
         // 流式接口HTTP错误处理
         if (!res.ok) {
-            const errJson = await res.json()
-            message.error(errJson.message || '流式连接失败')
+            const errJson = await res.json().catch(() => ({}))
             if (res.status === 401) {
-                localStorage.removeItem('token')
-                window.location.href = '/login'
+                handleSessionExpired(errJson.message || EXPIRED_MSG)
+                return Promise.reject(errJson)
             }
+            message.error(errJson.message || '流式连接失败')
             return Promise.reject(errJson)
         }
         const reader = res.body?.getReader()
