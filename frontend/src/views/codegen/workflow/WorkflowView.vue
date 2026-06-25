@@ -112,8 +112,8 @@ function handleEvent(event: WorkflowStepEvent) {
   if (event.message && event.step) {
     stepDescriptions[event.step] = event.message
   }
-  if (event.type === 'done' && event.data) {
-    applyResult(event.data)
+  if (event.type === 'done' && event.data && 'codeFiles' in event.data) {
+    applyResult(event.data as import('@/types/codegen').WorkflowResult)
     activeStep.value = 'done'
     message.success('工作流执行完成')
   }

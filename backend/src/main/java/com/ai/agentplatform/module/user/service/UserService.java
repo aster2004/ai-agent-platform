@@ -254,7 +254,9 @@ public class UserService {
         int consecutiveDays = 0;
         if (!checkinDates.isEmpty()) {
             LocalDate lastDate = checkinDates.get(0);
-            if (lastDate.plusDays(1).equals(today)) {
+            if (lastDate.equals(today)) {
+                consecutiveDays = 1;
+            } else if (lastDate.plusDays(1).equals(today)) {
                 consecutiveDays = 1;
                 for (int i = 1; i < checkinDates.size(); i++) {
                     if (checkinDates.get(i).plusDays(1).equals(checkinDates.get(i - 1))) {
@@ -263,9 +265,6 @@ public class UserService {
                         break;
                     }
                 }
-                consecutiveDays++;
-            } else if (lastDate.equals(today)) {
-                consecutiveDays = 1;
             }
         }
         UserCheckin checkin = new UserCheckin();
@@ -294,7 +293,7 @@ public class UserService {
         int consecutiveDays = 0;
         if (!checkinDates.isEmpty()) {
             LocalDate lastDate = checkinDates.get(0);
-            if (lastDate.plusDays(1).equals(today)) {
+            if (lastDate.equals(today)) {
                 consecutiveDays = 1;
                 for (int i = 1; i < checkinDates.size(); i++) {
                     if (checkinDates.get(i).plusDays(1).equals(checkinDates.get(i - 1))) {
@@ -303,8 +302,7 @@ public class UserService {
                         break;
                     }
                 }
-                consecutiveDays++;
-            } else if (lastDate.equals(today)) {
+            } else if (lastDate.plusDays(1).equals(today)) {
                 consecutiveDays = 1;
                 for (int i = 1; i < checkinDates.size(); i++) {
                     if (checkinDates.get(i).plusDays(1).equals(checkinDates.get(i - 1))) {

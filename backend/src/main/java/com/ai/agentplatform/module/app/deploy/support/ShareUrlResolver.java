@@ -1,6 +1,7 @@
 package com.ai.agentplatform.module.app.deploy.support;
 
 import com.ai.agentplatform.module.app.deploy.config.DeployProperties;
+import com.ai.agentplatform.module.app.deploy.enums.DeployMode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +47,39 @@ public class ShareUrlResolver {
             case NGINX -> buildShareUrlWithPort(deployProperties.getNginxPort(), reference.value());
             case DOCKER -> buildShareUrlWithPort(Integer.parseInt(reference.value()), "/");
         };
+    }
+
+    /** 将数据库条目解析为完整 URL（兼容 local:http://...、local:/sites/...、纯 URL） */
+    public String resolveFullUrlFromReference(DeployUrlCodec.DeployReference ref) {
+        if (ref == null || !StringUtils.hasText(ref.value())) {
+            return "";
+        }
+        String value = ref.value().trim();
+        if (value.startsWith("http://") || value.startsWith("https://")) {
+            return value;
+        }
+        return buildShareUrl(ref);
+    }
+
+    /** @deprecated 使用 {@link #resolveFullUrlFromReference(DeployUrlCodec.DeployReference)} */
+    @Deprecated
+    public String normalizeStoredDeployEntry(String entry) {
+        return resolveFullUrlFromReference(DeployUrlCodec.parseEntry(entry));
+    }
+
+    /** 识别一条部署记录对应的部署方式 */
+    public DeployMode detectDeployMode(String entry) {
+        if (!StringUtils.hasText(entry)) {
+            return DeployMode.LOCAL;
+        }
+        String trimmed = entry.trim();
+        for (DeployMode mode : DeployMode.values()) {
+            String prefix = mode.getCode() + ":";
+            if (trimmed.startsWith(prefix)) {
+                return mode;
+            }
+        }
+        return DeployUrlCodec.parseEntry(entry).mode();
     }
 
     public String buildShareUrlWithPort(int port, String path) {

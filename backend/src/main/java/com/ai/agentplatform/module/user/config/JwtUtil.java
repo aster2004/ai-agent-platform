@@ -1,6 +1,7 @@
 package com.ai.agentplatform.module.user.config;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,6 +59,10 @@ public class JwtUtil {
     }
 
     public boolean isTokenExpired(String token) {
-        return parseToken(token).getExpiration().before(new Date());
+        try {
+            return parseToken(token).getExpiration().before(new Date());
+        } catch (ExpiredJwtException e) {
+            return true;
+        }
     }
 }

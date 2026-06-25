@@ -33,3 +33,27 @@ export function executeWorkflowStream(data: WorkflowParams): Promise<Response> {
     body: JSON.stringify(data),
   })
 }
+
+/** 深度分析阶段一：生成需求文档 */
+export function analyzeWorkflowStream(data: WorkflowParams): Promise<Response> {
+  return fetch('/api/codegen/workflow/analyze/stream', {
+    method: 'POST',
+    headers: streamHeaders(),
+    body: JSON.stringify(data),
+  })
+}
+
+/** 更新需求文档 */
+export function updateWorkflowPrd(generateId: number, prdContent: string) {
+  return request.put<any, Result<WorkflowResult>>(`/api/codegen/workflow/${generateId}/prd`, {
+    prdContent,
+  })
+}
+
+/** 深度分析阶段二：确认后生成应用 */
+export function continueWorkflowStream(generateId: number): Promise<Response> {
+  return fetch(`/api/codegen/workflow/${generateId}/continue/stream`, {
+    method: 'POST',
+    headers: streamHeaders(),
+  })
+}

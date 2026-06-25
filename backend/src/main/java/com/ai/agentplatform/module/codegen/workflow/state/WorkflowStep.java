@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 public enum WorkflowStep {
 
     ANALYZE("analyze", "分析需求"),
+    PRD("prd", "生成需求文档"),
+    PRD_READY("prd_ready", "等待确认"),
     STRATEGY("strategy", "选择策略"),
     GENERATE("generate", "生成代码"),
     VALIDATE("validate", "校验结果"),

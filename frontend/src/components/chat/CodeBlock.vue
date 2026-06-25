@@ -11,15 +11,17 @@
           <DownloadOutlined />
           <span>下载</span>
         </button>
-        <button class="action-btn" @click="handleRun">
+        <button class="action-btn run-btn" @click="handleRun" :disabled="running">
           <PlayCircleOutlined />
-          <span>运行</span>
+          <span>{{ running ? '加载中' : '运行' }}</span>
         </button>
       </div>
     </div>
+
     <div class="code-body-wrap" :class="{ collapsed: isCollapsed }">
       <pre class="code-body"><code>{{ content }}</code></pre>
     </div>
+
     <button class="collapse-btn" @click="isCollapsed = !isCollapsed">
       <DownOutlined :class="{ rotated: !isCollapsed }" />
     </button>
@@ -35,16 +37,31 @@ import {
   PlayCircleOutlined,
   DownOutlined,
 } from '@ant-design/icons-vue'
+import type { CodeFile } from '@/types/codegen'
 
 const props = defineProps<{
   content: string
   filename?: string
   lang?: string
+  allFiles?: CodeFile[]
+  appId?: number
+}>()
+
+const emit = defineEmits<{
+  preview: [files: CodeFile[]]
 }>()
 
 const isCollapsed = ref(false)
+const running = ref(false)
 
 const label = props.filename || props.lang || 'code'
+
+function collectFiles(): CodeFile[] {
+  if (props.allFiles?.length) {
+    return props.allFiles
+  }
+  return [{ path: props.filename || 'index.html', content: props.content }]
+}
 
 async function handleCopy() {
   try {
@@ -56,7 +73,9 @@ async function handleCopy() {
 }
 
 function handleDownload() {
-  const name = props.filename?.includes('.') ? props.filename : `${props.filename ?? 'code'}.${props.lang ?? 'txt'}`
+  const name = props.filename?.includes('.')
+    ? props.filename
+    : `${props.filename ?? 'code'}.${props.lang ?? 'txt'}`
   const blob = new Blob([props.content], { type: 'text/plain' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -66,25 +85,37 @@ function handleDownload() {
   URL.revokeObjectURL(url)
 }
 
-function handleRun() {
-  const lang = props.lang ?? ''
-  const isHtml = lang === 'html' || props.content.includes('<html') || props.content.includes('<!DOCTYPE')
-  if (isHtml) {
+async function handleRun() {
+  const files = collectFiles()
+  const primary = files.find(f => f.path.endsWith('.html'))?.content ?? props.content
+  const isStandaloneHtml =
+    primary.includes('<html') || primary.includes('<!DOCTYPE')
+
+  if (files.length === 1 && isStandaloneHtml && !primary.includes('type="module"')) {
     const win = window.open('', '_blank')
     if (win) {
       win.document.open()
-      win.document.write(props.content)
+      win.document.write(primary)
       win.document.close()
     }
     return
   }
-  message.info('当前文件类型暂不支持直接运行，请下载后本地运行')
+
+  running.value = true
+  try {
+    emit('preview', files)
+  } finally {
+    running.value = false
+  }
 }
 </script>
 
 <style scoped>
 .code-block {
   margin-top: 12px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: 12px;
   background: #f4f5f7;
   overflow: hidden;
@@ -125,8 +156,12 @@ function handleRun() {
   transition: background 0.15s;
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
+  color: #1677ff;
+}
+
+.run-btn {
   color: #1677ff;
 }
 
@@ -172,3 +207,4 @@ function handleRun() {
   transition: transform 0.2s;
 }
 </style>
+

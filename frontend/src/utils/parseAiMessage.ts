@@ -1,14 +1,18 @@
-import type { CodeFile, WorkflowStepCode } from '@/types/codegen'
+import type { CodeFile, WorkflowStepCode, WorkflowTask, WorkflowPhase } from '@/types/codegen'
 
 export interface ParsedAiMessage {
   type: 'workflow' | 'code' | 'text'
+  phase?: WorkflowPhase
+  generateId?: number
   summary?: string
+  prdContent?: string
   strategy?: string
   validated?: boolean
   error?: string
   durationMs?: number
   activeStep?: WorkflowStepCode
   stepDescriptions?: Partial<Record<WorkflowStepCode, string>>
+  tasks: WorkflowTask[]
   files: CodeFile[]
   lang?: string
   plainText?: string
@@ -18,25 +22,33 @@ const WORKFLOW_MARKER = '<!--AI_WORKFLOW:'
 const CODE_MARKER = '<!--AI_CODE:'
 
 export function buildWorkflowContent(state: {
+  phase?: WorkflowPhase
+  generateId?: number
   summary?: string
+  prdContent?: string
   strategy?: string
   validated?: boolean
   error?: string
   durationMs?: number
   activeStep?: WorkflowStepCode
   stepDescriptions?: Partial<Record<WorkflowStepCode, string>>
+  tasks?: WorkflowTask[]
   files: CodeFile[]
 }): string {
   const meta = {
     type: 'workflow',
+    phase: state.phase ?? 'done',
+    generateId: state.generateId,
     summary: state.summary,
+    prdContent: state.prdContent,
     strategy: state.strategy,
     validated: state.validated,
     error: state.error,
     durationMs: state.durationMs,
     activeStep: state.activeStep ?? 'done',
     stepDescriptions: state.stepDescriptions ?? {},
-    files: state.files,
+    tasks: state.tasks ?? [],
+    files: state.files ?? [],
   }
   return `${WORKFLOW_MARKER}${JSON.stringify(meta)}-->`
 }
@@ -64,48 +76,76 @@ function detectLang(pathOrCode: string): string {
   return 'text'
 }
 
+function extractMarkerJson(content: string, marker: string): string | null {
+  const trimmed = content.trimStart()
+  let jsonStart = -1
+
+  if (content.startsWith(marker)) {
+    jsonStart = marker.length
+  } else if (trimmed.startsWith(marker.replace('<!--', '<!-- '))) {
+    jsonStart = content.indexOf(trimmed) + trimmed.indexOf(':') + 1
+  } else {
+    return null
+  }
+
+  const end = content.lastIndexOf('-->')
+  if (end <= jsonStart) return null
+  return content.slice(jsonStart, end).trim()
+}
+
 export function parseAiMessage(content: string): ParsedAiMessage {
-  if (content.startsWith(WORKFLOW_MARKER)) {
-    const end = content.indexOf('-->', WORKFLOW_MARKER.length)
-    if (end > 0) {
-      try {
-        const meta = JSON.parse(content.slice(WORKFLOW_MARKER.length, end))
-        return {
-          type: 'workflow',
-          summary: meta.summary,
-          strategy: meta.strategy,
-          validated: meta.validated,
-          error: meta.error,
-          durationMs: meta.durationMs,
-          activeStep: meta.activeStep,
-          stepDescriptions: meta.stepDescriptions,
-          files: meta.files ?? [],
-        }
-      } catch {
-        // fall through
+  const workflowJson = extractMarkerJson(content, WORKFLOW_MARKER)
+  if (workflowJson) {
+    try {
+      const meta = JSON.parse(workflowJson)
+      return {
+        type: 'workflow',
+        phase: meta.phase,
+        generateId: meta.generateId,
+        summary: meta.summary,
+        prdContent: meta.prdContent,
+        strategy: meta.strategy,
+        validated: meta.validated,
+        error: meta.error,
+        durationMs: meta.durationMs,
+        activeStep: meta.activeStep,
+        stepDescriptions: meta.stepDescriptions,
+        tasks: meta.tasks ?? [],
+        files: meta.files ?? [],
       }
+    } catch {
+      // fall through
     }
   }
 
-  if (content.startsWith(CODE_MARKER)) {
-    const end = content.indexOf('-->', CODE_MARKER.length)
-    if (end > 0) {
-      try {
-        const meta = JSON.parse(content.slice(CODE_MARKER.length, end))
-        const code = content.slice(end + 3).replace(/^\n/, '')
-        return {
-          type: 'code',
-          lang: meta.lang ?? detectLang(code),
-          files: [{ path: meta.lang ?? 'code', content: code }],
-          plainText: code,
-        }
-      } catch {
-        // fall through
+  const codeJson = extractMarkerJson(content, CODE_MARKER)
+  if (codeJson) {
+    try {
+      const meta = JSON.parse(codeJson)
+      const end = content.lastIndexOf('-->')
+      const code = content.slice(end + 3).replace(/^\n/, '')
+      return {
+        type: 'code',
+        lang: meta.lang ?? detectLang(code),
+        tasks: [],
+        files: [{ path: meta.lang ?? 'code', content: code }],
+        plainText: code,
       }
+    } catch {
+      // fall through
     }
   }
 
-  // Legacy text format
+  if (content.includes(WORKFLOW_MARKER) || content.includes('AI_WORKFLOW')) {
+    return {
+      type: 'workflow',
+      phase: 'await_confirm',
+      tasks: [],
+      files: [],
+      plainText: '需求分析已完成，请点击「立即创作」继续生成应用。',
+    }
+  }
+
   const files: CodeFile[] = []
   let summary: string | undefined
   let strategy: string | undefined
@@ -129,6 +169,7 @@ export function parseAiMessage(content: string): ParsedAiMessage {
       summary,
       strategy,
       validated,
+      tasks: [],
       files,
       plainText: metaText.trim(),
     }
@@ -146,10 +187,11 @@ export function parseAiMessage(content: string): ParsedAiMessage {
     return {
       type: 'code',
       lang,
+      tasks: [],
       files: [{ path: lang, content: content.trim() }],
       plainText: content,
     }
   }
 
-  return { type: 'text', files: [], plainText: content }
+  return { type: 'text', tasks: [], files: [], plainText: content }
 }

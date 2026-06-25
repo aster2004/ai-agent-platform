@@ -40,9 +40,16 @@ langchain4j:
       model-name: gpt-4o-mini
       temperature: 0.7
 
+mybatis-flex:
+  mapper-locations: classpath*:mybatis/**/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
 logging:
   level:
     com.ai.agentplatform: debug
+    com.ai.agentplatform.module: debug
     dev.langchain4j: info
 
 springdoc:

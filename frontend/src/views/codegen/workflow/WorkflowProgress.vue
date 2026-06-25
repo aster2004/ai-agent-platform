@@ -16,6 +16,7 @@ const props = defineProps<{
 
 const steps = [
   { code: 'analyze' as const, label: '分析需求' },
+  { code: 'prd' as const, label: '生成需求文档' },
   { code: 'strategy' as const, label: '选择策略' },
   { code: 'generate' as const, label: '生成代码' },
   { code: 'validate' as const, label: '校验结果' },

@@ -45,6 +45,11 @@ public class AppPreviewService {
 
     private String resolveEntryPath(List<AppCodeFile> files) {
         for (AppCodeFile file : files) {
+            if ("preview.html".equals(file.getPath())) {
+                return file.getPath();
+            }
+        }
+        for (AppCodeFile file : files) {
             String path = file.getPath();
             if ("index.html".equals(path)) {
                 return path;

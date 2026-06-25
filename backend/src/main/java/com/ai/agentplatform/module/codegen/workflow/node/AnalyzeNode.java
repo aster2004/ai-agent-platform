@@ -44,7 +44,7 @@ public class AnalyzeNode implements NodeAction<WorkflowState> {
 
         return Map.of(
                 WorkflowState.SUMMARY_KEY, summary.trim(),
-                WorkflowState.CURRENT_STEP_KEY, WorkflowStep.STRATEGY.getCode()
+                WorkflowState.CURRENT_STEP_KEY, WorkflowStep.PRD.getCode()
         );
     }
 }
