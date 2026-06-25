@@ -3,6 +3,7 @@ package com.ai.agentplatform.module.codegen.service.helper;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.ai.agentplatform.module.codegen.workflow.state.CodeFile;
 import jakarta.annotation.Resource;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -51,6 +53,25 @@ public class AppSyncHelper {
         } catch (Exception e) {
             // 同步失败不阻塞代码生成主流程，仅记录错误日志
             log.error("[应用同步失败] appId={}, 原因: {}", appId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 同步多文件代码到应用模块（工作流专用）
+     * 单文件直接传内容，多文件序列化为 JSON 数组
+     */
+    public void syncCodeFilesToApp(Long appId, List<CodeFile> files) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        try {
+            if (files.size() == 1 && "index.html".equals(files.get(0).getPath())) {
+                syncCodeToApp(appId, files.get(0).getContent());
+            } else {
+                syncCodeToApp(appId, JSON.toJSONString(files));
+            }
+        } catch (Exception e) {
+            log.error("同步多文件代码失败 appId={}", appId, e);
         }
     }
 

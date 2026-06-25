@@ -1,4 +1,4 @@
-import type { CodeGenParams, CodeGenVO, WorkflowParams, WorkflowResult } from '@/types/codegen'
+import type { CodeGenParams, CodeGenPageVO, CodeGenVO, WorkflowParams, WorkflowResult } from '@/types/codegen'
 import type { Result } from '@/types/common'
 import request from '@/utils/request'
 
@@ -19,6 +19,12 @@ export function generateCodeStream(data: CodeGenParams): Promise<Response> {
     method: 'POST',
     headers: streamHeaders(),
     body: JSON.stringify(data),
+  })
+}
+
+export function getRecordList(pageNum = 1, pageSize = 10) {
+  return request.get<any, Result<CodeGenPageVO>>('/api/codegen/record/list', {
+    params: { pageNum, pageSize },
   })
 }
 

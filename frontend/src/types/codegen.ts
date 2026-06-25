@@ -3,15 +3,28 @@ export interface CodeGenParams {
   appId?: number
   sessionId?: number
   generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW'
+  modelName?: string
 }
 
 export interface CodeGenVO {
   id?: number
+  prompt?: string
   codeContent?: string
+  generateType?: string
   generateStatus?: number
   modelName?: string
   costTokens?: number
   duration?: number
+  errorMsg?: string
+  createTime?: string
+  workflowStep?: string
+}
+
+export interface CodeGenPageVO {
+  total: number
+  pageNum: number
+  pageSize: number
+  list: CodeGenVO[]
 }
 
 export type GenerationOutput = 'stream' | 'sync'
