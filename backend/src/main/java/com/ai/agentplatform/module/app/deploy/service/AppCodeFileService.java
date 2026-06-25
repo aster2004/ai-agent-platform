@@ -4,6 +4,7 @@ import com.ai.agentplatform.module.app.deploy.config.DeployProperties;
 import com.ai.agentplatform.module.app.deploy.dto.AppCodeFile;
 import com.ai.agentplatform.module.app.deploy.repository.AppDeployAccessor;
 import com.ai.agentplatform.module.app.deploy.support.DeployPathResolver;
+import com.ai.agentplatform.module.app.deploy.support.PreviewBridgeInjector;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class AppCodeFileService {
+
+    private static final String PREVIEW_SUB_DIR = "preview";
 
     private static final String DEFAULT_HTML = """
             <!DOCTYPE html>
@@ -72,10 +75,15 @@ public class AppCodeFileService {
     }
 
     public void writeFiles(Long appId, String subDir, List<AppCodeFile> files) throws IOException {
-        writeToDirectory(deployPathResolver.resolve(subDir, String.valueOf(appId)), files);
+        boolean injectBridge = PREVIEW_SUB_DIR.equals(subDir);
+        writeToDirectory(deployPathResolver.resolve(subDir, String.valueOf(appId)), files, injectBridge);
     }
 
     public void writeToDirectory(Path targetDir, List<AppCodeFile> files) throws IOException {
+        writeToDirectory(targetDir, files, false);
+    }
+
+    public void writeToDirectory(Path targetDir, List<AppCodeFile> files, boolean injectPreviewBridge) throws IOException {
         targetDir = targetDir.toAbsolutePath().normalize();
         if (Files.exists(targetDir)) {
             deleteRecursively(targetDir);
@@ -91,6 +99,9 @@ public class AppCodeFileService {
             String content = file.getContent() != null ? file.getContent() : "";
             if (relativePath.toLowerCase().endsWith(".html") || relativePath.toLowerCase().endsWith(".htm")) {
                 content = ensureUtf8HtmlDocument(content);
+                if (injectPreviewBridge) {
+                    content = PreviewBridgeInjector.inject(content);
+                }
             }
             Files.writeString(filePath, content, StandardCharsets.UTF_8);
         }

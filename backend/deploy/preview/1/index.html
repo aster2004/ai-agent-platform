@@ -1,2 +1,709 @@
-<html>
-<head><meta charset="UTF-8"/></head><body><h1>Hello Mock App</h1></body></html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简易计算器 - Calculator Service</title>
+    <style>
+        /* ========== 全局重置与基础样式 ========== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        /* ========== 卡片容器 ========== */
+        .container {
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 520px;
+            width: 100%;
+            transition: transform 0.3s ease;
+        }
+
+        .container:hover {
+            transform: translateY(-2px);
+        }
+
+        /* ========== 标题区域 ========== */
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            color: #2d3748;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .header h1 .accent {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            color: #718096;
+            font-size: 14px;
+            margin-top: 6px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 4px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.checking {
+            background: #fefcbf;
+            color: #975a16;
+        }
+
+        .status-badge.up {
+            background: #c6f6d5;
+            color: #276749;
+        }
+
+        .status-badge.down {
+            background: #fed7d7;
+            color: #9b2c2c;
+        }
+
+        /* ========== 输入区域 ========== */
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 6px;
+        }
+
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 16px;
+            color: #2d3748;
+            background: #f7fafc;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            border-color: #667eea;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+        }
+
+        .input-group input::placeholder {
+            color: #a0aec0;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .input-row .input-group {
+            flex: 1;
+        }
+
+        .input-row .input-group.operator-group {
+            flex: 0 0 80px;
+        }
+
+        /* ========== 按钮 ========== */
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ========== 结果区域 ========== */
+        .result-area {
+            margin-top: 24px;
+            padding: 20px;
+            border-radius: 12px;
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .result-area.success {
+            border-color: #48bb78;
+            background: #f0fff4;
+        }
+
+        .result-area.error {
+            border-color: #fc8181;
+            background: #fff5f5;
+        }
+
+        .result-area .label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+
+        .result-area .result-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #2d3748;
+            word-break: break-all;
+        }
+
+        .result-area .result-message {
+            font-size: 14px;
+            color: #718096;
+            margin-top: 2px;
+        }
+
+        .result-area .result-value.error-text {
+            color: #e53e3e;
+        }
+
+        /* ========== 历史记录 ========== */
+        .history-section {
+            margin-top: 24px;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 16px;
+        }
+
+        .history-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .history-header h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .history-header .clear-btn {
+            background: none;
+            border: none;
+            color: #fc8181;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        .history-header .clear-btn:hover {
+            background: #fff5f5;
+        }
+
+        .history-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .history-list::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .history-list::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 2px;
+        }
+
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #4a5568;
+            transition: background 0.2s;
+        }
+
+        .history-item:hover {
+            background: #edf2f7;
+        }
+
+        .history-item .expr {
+            font-weight: 500;
+        }
+
+        .history-item .hresult {
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .history-empty {
+            text-align: center;
+            color: #a0aec0;
+            font-size: 13px;
+            padding: 10px 0;
+        }
+
+        /* ========== API 信息 ========== */
+        .api-info {
+            margin-top: 20px;
+            padding: 12px 16px;
+            background: #edf2f7;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #718096;
+        }
+
+        .api-info code {
+            background: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #4a5568;
+        }
+
+        /* ========== 加载动画 ========== */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e2e8f0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ========== 响应式 ========== */
+        @media (max-width: 480px) {
+            .container {
+                padding: 24px 20px;
+            }
+
+            .header h1 {
+                font-size: 22px;
+            }
+
+            .input-row {
+                flex-direction: column;
+                gap: 0;
+            }
+
+            .input-row .input-group.operator-group {
+                flex: 1;
+            }
+
+            .result-area .result-value {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 标题 -->
+        <div class="header">
+            <h1>🧮 简易<span class="accent">计算器</span></h1>
+            <p>Calculator Service · RESTful API</p>
+            <span id="statusBadge" class="status-badge checking">⏳ 检查服务状态...</span>
+        </div>
+
+        <!-- 输入表单 -->
+        <form id="calcForm" autocomplete="off">
+            <div class="input-row">
+                <div class="input-group">
+                    <label for="number1">操作数 1</label>
+                    <input type="number" id="number1" step="any" placeholder="例如: 10" value="10" required>
+                </div>
+                <div class="input-group operator-group">
+                    <label for="operator">运算符</label>
+                    <select id="operator">
+                        <option value="+">+</option>
+                        <option value="-">−</option>
+                        <option value="*">×</option>
+                        <option value="/">÷</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="number2">操作数 2</label>
+                    <input type="number" id="number2" step="any" placeholder="例如: 5" value="5" required>
+                </div>
+            </div>
+
+            <button type="submit" class="btn" id="calcBtn">
+                🚀 计算
+            </button>
+        </form>
+
+        <!-- 结果展示 -->
+        <div id="resultArea" class="result-area">
+            <div class="label">计算结果</div>
+            <div class="result-value" id="resultValue">—</div>
+            <div class="result-message" id="resultMessage">输入数字并点击计算</div>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="history-section">
+            <div class="history-header">
+                <h3>📋 历史记录</h3>
+                <button class="clear-btn" id="clearHistoryBtn">清空</button>
+            </div>
+            <div class="history-list" id="historyList">
+                <div class="history-empty">暂无记录</div>
+            </div>
+        </div>
+
+        <!-- API 信息 -->
+        <div class="api-info">
+            <strong>📡 API 端点：</strong>
+            <code>POST /api/calculate</code>
+            &nbsp;·&nbsp;
+            <code>GET /api/health</code>
+            <br>
+            <span style="font-size:11px; color:#a0aec0;">
+                后端地址: <span id="apiBaseUrl">http://localhost:8080</span>
+            </span>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        //  配置
+        // ============================================================
+        const API_BASE = 'http://localhost:8080';
+
+        // ============================================================
+        //  DOM 引用
+        // ============================================================
+        const form = document.getElementById('calcForm');
+        const num1Input = document.getElementById('number1');
+        const num2Input = document.getElementById('number2');
+        const operatorSelect = document.getElementById('operator');
+        const calcBtn = document.getElementById('calcBtn');
+        const resultArea = document.getElementById('resultArea');
+        const resultValue = document.getElementById('resultValue');
+        const resultMessage = document.getElementById('resultMessage');
+        const statusBadge = document.getElementById('statusBadge');
+        const historyList = document.getElementById('historyList');
+        const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        const apiBaseUrlSpan = document.getElementById('apiBaseUrl');
+
+        // 显示后端地址
+        apiBaseUrlSpan.textContent = API_BASE;
+
+        // ============================================================
+        //  历史记录管理
+        // ============================================================
+        let history = [];
+
+        function loadHistory() {
+            try {
+                const saved = localStorage.getItem('calcHistory');
+                if (saved) {
+                    history = JSON.parse(saved);
+                }
+            } catch (e) {
+                history = [];
+            }
+        }
+
+        function saveHistory() {
+            try {
+                localStorage.setItem('calcHistory', JSON.stringify(history));
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        function addHistoryItem(expr, result, isError) {
+            history.unshift({ expr, result, isError, time: Date.now() });
+            if (history.length > 50) history = history.slice(0, 50);
+            saveHistory();
+            renderHistory();
+        }
+
+        function renderHistory() {
+            if (history.length === 0) {
+                historyList.innerHTML = '<div class="history-empty">暂无记录</div>';
+                return;
+            }
+
+            historyList.innerHTML = history.map(item => {
+                const displayResult = item.isError
+                    ? `<span style="color:#e53e3e">${escapeHtml(item.result)}</span>`
+                    : `<span class="hresult">${escapeHtml(item.result)}</span>`;
+                return `
+                    <div class="history-item">
+                        <span class="expr">${escapeHtml(item.expr)}</span>
+                        <span>${displayResult}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ============================================================
+        //  健康检查
+        // ============================================================
+        async function checkHealth() {
+            statusBadge.className = 'status-badge checking';
+            statusBadge.textContent = '⏳ 检查服务状态...';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/health`);
+                const data = await res.json();
+
+                if (data.status === 'UP') {
+                    statusBadge.className = 'status-badge up';
+                    statusBadge.textContent = '✅ 服务运行中';
+                } else {
+                    statusBadge.className = 'status-badge down';
+                    statusBadge.textContent = '⚠️ 服务异常';
+                }
+            } catch (err) {
+                statusBadge.className = 'status-badge down';
+                statusBadge.textContent = '❌ 无法连接后端服务';
+            }
+        }
+
+        // ============================================================
+        //  计算请求
+        // ============================================================
+        async function performCalculation(number1, number2, operator) {
+            const response = await fetch(`${API_BASE}/api/calculate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ number1, number2, operator })
+            });
+
+            return await response.json();
+        }
+
+        // ============================================================
+        //  显示结果
+        // ============================================================
+        function showResult(data, expr) {
+            resultArea.className = 'result-area';
+
+            if (data.code === 200) {
+                resultArea.classList.add('success');
+                resultValue.className = 'result-value';
+                resultValue.textContent = data.result;
+                resultMessage.textContent = '✅ 计算成功';
+                addHistoryItem(expr, data.result, false);
+            } else {
+                resultArea.classList.add('error');
+                resultValue.className = 'result-value error-text';
+                resultValue.textContent = data.message || '未知错误';
+                resultMessage.textContent = `❌ 错误码: ${data.code}`;
+                addHistoryItem(expr, data.message || '未知错误', true);
+            }
+        }
+
+        // ============================================================
+        //  表单提交
+        // ============================================================
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const number1 = parseFloat(num1Input.value);
+            const number2 = parseFloat(num2Input.value);
+            const operator = operatorSelect.value;
+
+            // 前端校验
+            if (isNaN(number1) || isNaN(number2)) {
+                resultArea.className = 'result-area error';
+                resultValue.className = 'result-value error-text';
+                resultValue.textContent = '请输入有效的数字';
+                resultMessage.textContent = '❌ 参数错误';
+                return;
+            }
+
+            if (operator === '/' && number2 === 0) {
+                resultArea.className = 'result-area error';
+                resultValue.className = 'result-value error-text';
+                resultValue.textContent = '除数不能为0';
+                resultMessage.textContent = '❌ 参数错误';
+                addHistoryItem(`${number1} ${operator} ${number2}`, '除数不能为0', true);
+                return;
+            }
+
+            // 显示加载状态
+            calcBtn.disabled = true;
+            calcBtn.innerHTML = '<span class="spinner"></span> 计算中...';
+
+            const expr = `${number1} ${operator} ${number2}`;
+
+            try {
+                const data = await performCalculation(number1, number2, operator);
+                showResult(data, expr);
+            } catch (err) {
+                resultArea.className = 'result-area error';
+                resultValue.className = 'result-value error-text';
+                resultValue.textContent = '网络请求失败';
+                resultMessage.textContent = '❌ 请检查后端服务是否启动';
+                addHistoryItem(expr, '网络请求失败', true);
+            } finally {
+                calcBtn.disabled = false;
+                calcBtn.innerHTML = '🚀 计算';
+            }
+        });
+
+        // ============================================================
+        //  清空历史
+        // ============================================================
+        clearHistoryBtn.addEventListener('click', () => {
+            history = [];
+            saveHistory();
+            renderHistory();
+        });
+
+        // ============================================================
+        //  键盘快捷键：回车计算
+        // ============================================================
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') {
+                form.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // ============================================================
+        //  初始化
+        // ============================================================
+        loadHistory();
+        renderHistory();
+        checkHealth();
+
+        // 每 30 秒检查一次服务状态
+        setInterval(checkHealth, 30000);
+    </script>
+<script><!--AI_PREVIEW_BRIDGE-->
+(function () {
+  var SOURCE = 'ai-agent-preview';
+  function post(type, payload) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(Object.assign({ source: SOURCE, type: type }, payload || {}), '*');
+      }
+    } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('error', function (e) {
+    post('preview-error', {
+      message: e.message || 'Unknown error',
+      filename: e.filename || '',
+      lineno: e.lineno || 0
+    });
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    post('preview-error', { message: String(e.reason || 'Unhandled rejection') });
+  });
+  ['log', 'warn', 'error'].forEach(function (level) {
+    var orig = console[level];
+    console[level] = function () {
+      orig.apply(console, arguments);
+      post('preview-console', {
+        level: level,
+        message: Array.prototype.slice.call(arguments).map(String).join(' ')
+      });
+    };
+  });
+  function healthCheck() {
+    setTimeout(function () {
+      var app = document.getElementById('app');
+      var body = document.body;
+      if (!body) {
+        post('preview-empty', { reason: 'no-body' });
+        return;
+      }
+      var interactive = body.querySelectorAll(
+        'input, button, form, a, select, textarea, [role="button"]'
+      ).length;
+      var nodes = body.querySelectorAll('*').length;
+      var appEmpty = app && !String(app.innerHTML || '').trim();
+      var tooEmpty = nodes < 6 || (interactive === 0 && nodes < 18);
+      if (appEmpty || tooEmpty) {
+        post('preview-empty', {
+          nodes: nodes,
+          interactive: interactive,
+          appEmpty: !!appEmpty,
+          message: '页面内容过少，可能预览构建失败'
+        });
+      } else {
+        post('preview-ready', { nodes: nodes, interactive: interactive });
+      }
+    }, 400);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', healthCheck);
+  } else {
+    healthCheck();
+  }
+})();
+</script>
+</body>
+</html>

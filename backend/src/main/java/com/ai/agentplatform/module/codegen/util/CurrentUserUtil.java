@@ -17,9 +17,12 @@ public class CurrentUserUtil {
             throw new RuntimeException("用户未登录，请携带Token访问接口");
         }
         Object principal = auth.getPrincipal();
-        // 方案1：principal是userId字符串（优先用，找成员确认是否符合）
-        if (principal instanceof String) {
-            return Long.parseLong((String) principal);
+        if (principal instanceof Long userId) {
+            return userId;
+        }
+        // 方案1：principal是userId字符串
+        if (principal instanceof String str) {
+            return Long.parseLong(str);
         }
         // 方案2：反射读取自定义UserDetails的getUserId，不用导入对方类
         try {

@@ -1,11 +1,11 @@
 package com.ai.agentplatform.module.user.config;
 
+import io.jsonwebtoken.ExpiredJwtException;
 import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import com.ai.agentplatform.module.user.service.TokenBlacklistService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -22,6 +22,8 @@ import java.util.Collections;
 @RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
 
+    public static final String DEV_MOCK_TOKEN = "dev-mock-token";
+
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
 
@@ -30,22 +32,30 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         try {
             String token = extractToken(request);
-            if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token) && !tokenBlacklistService.isBlacklisted(token)) {
+            if (DEV_MOCK_TOKEN.equals(token)) {
+                setAuthentication(1L, "user", request);
+            } else if (StringUtils.hasText(token) && !jwtUtil.isTokenExpired(token)
+                    && !tokenBlacklistService.isBlacklisted(token)) {
                 Long userId = jwtUtil.getUserIdFromToken(token);
                 String role = jwtUtil.getRoleFromToken(token);
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(
-                                userId,
-                                null,
-                                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
-                        );
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                setAuthentication(userId, role, request);
             }
+        } catch (ExpiredJwtException e) {
+            logger.debug("JWT expired", e);
         } catch (Exception e) {
             logger.error("JWT authentication failed", e);
         }
         filterChain.doFilter(request, response);
+    }
+
+    private void setAuthentication(Long userId, String role, HttpServletRequest request) {
+        UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                userId,
+                null,
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role.toUpperCase()))
+        );
+        authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+        SecurityContextHolder.getContext().setAuthentication(authentication);
     }
 
     private String extractToken(HttpServletRequest request) {

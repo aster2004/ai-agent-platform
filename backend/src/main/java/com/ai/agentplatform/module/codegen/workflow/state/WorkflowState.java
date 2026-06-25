@@ -12,6 +12,7 @@ public class WorkflowState extends AgentState {
 
     public static final String PROMPT_KEY = "prompt";
     public static final String SUMMARY_KEY = "summary";
+    public static final String PRD_KEY = "prd";
     public static final String STRATEGY_KEY = "strategy";
     public static final String CODE_FILES_KEY = "codeFiles";
     public static final String CURRENT_STEP_KEY = "currentStep";
@@ -21,6 +22,7 @@ public class WorkflowState extends AgentState {
     public static final Map<String, Channel<?>> SCHEMA = Map.of(
             PROMPT_KEY, Channels.base(() -> ""),
             SUMMARY_KEY, Channels.base(() -> ""),
+            PRD_KEY, Channels.base(() -> ""),
             STRATEGY_KEY, Channels.base(() -> ""),
             CODE_FILES_KEY, Channels.base(ArrayList::new),
             CURRENT_STEP_KEY, Channels.base(() -> WorkflowStep.ANALYZE.getCode()),
@@ -38,6 +40,10 @@ public class WorkflowState extends AgentState {
 
     public String summary() {
         return value(SUMMARY_KEY).map(Object::toString).orElse("");
+    }
+
+    public String prd() {
+        return value(PRD_KEY).map(Object::toString).orElse("");
     }
 
     public String strategy() {

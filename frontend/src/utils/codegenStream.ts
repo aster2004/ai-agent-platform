@@ -1,7 +1,16 @@
+import { EXPIRED_MSG, handleSessionExpired } from '@/utils/authSession'
+
 export async function readSseStream(
   response: Response,
   onEvent: (eventName: string, data: string) => void,
 ) {
+  if (!response.ok) {
+    if (response.status === 401) {
+      handleSessionExpired(EXPIRED_MSG)
+    }
+    throw new Error(response.status === 401 ? EXPIRED_MSG : `流式请求失败 (${response.status})`)
+  }
+
   const reader = response.body?.getReader()
   const decoder = new TextDecoder()
   if (!reader) throw new Error('无法读取流式响应')

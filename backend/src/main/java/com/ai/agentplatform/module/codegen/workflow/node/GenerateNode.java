@@ -38,10 +38,12 @@ public class GenerateNode implements NodeAction<WorkflowState> {
         }
         fileToolService.reset();
 
+        String requirement = buildRequirement(state);
         List<CodeFile> codeFiles = switch (state.strategy()) {
-            case "VUE", "WORKFLOW" -> generateVueProject(state.prompt(), state.summary());
-            case "MULTI_FILE" -> generateMultiFileHtml(state.prompt());
-            default -> generateSingleHtml(state.prompt());
+            case "VUE", "WORKFLOW" -> generateVueProject(requirement, state.summary());
+            case "MULTI_FILE" -> generateMultiFileHtml(requirement);
+            case "FULL_STACK" -> generateFullStackProject(requirement, state.summary());
+            default -> generateSingleHtml(requirement);
         };
 
         log.info("[Workflow] 生成文件数: {}", codeFiles.size());
@@ -49,6 +51,13 @@ public class GenerateNode implements NodeAction<WorkflowState> {
                 WorkflowState.CODE_FILES_KEY, new ArrayList<>(codeFiles),
                 WorkflowState.CURRENT_STEP_KEY, WorkflowStep.VALIDATE.getCode()
         );
+    }
+
+    private String buildRequirement(WorkflowState state) {
+        if (!state.prd().isBlank()) {
+            return state.prd();
+        }
+        return state.prompt();
     }
 
     private List<CodeFile> generateVueProject(String prompt, String summary) {
@@ -92,10 +101,43 @@ public class GenerateNode implements NodeAction<WorkflowState> {
 
     private List<CodeFile> generateSingleHtml(String prompt) {
         String html = chatModel.chat("""
-                你是前端工程师，只输出完整 HTML 代码，不要 markdown 代码块：
+                你是前端工程师，只输出完整 HTML 代码，不要 markdown 代码块。
+                要求：
+                1. 页面必须包含完整可交互 UI（表单、按钮、输入框等），不要只有背景色
+                2. CSS 和 JS 全部内联在同一 HTML 文件中
+                3. 可直接在浏览器打开运行，不依赖 Vue/Vite/构建工具
+                需求：
                 %s
                 """.formatted(prompt));
         return List.of(new CodeFile("index.html", stripCodeFence(html)));
+    }
+
+    private List<CodeFile> generateFullStackProject(String prompt, String summary) {
+        fileToolService.reset();
+        FullStackAgent agent = AiServices.builder(FullStackAgent.class)
+                .chatModel(chatModel)
+                .tools(fileToolService)
+                .build();
+
+        agent.generate("""
+                请生成前后端分离项目，必须使用 createFile 工具创建文件：
+                前端（可预览）：
+                - index.html（完整可交互页面，内联 CSS/JS，可直接浏览器打开）
+                后端（Spring Boot）：
+                - backend/src/main/java/com/example/Application.java
+                - backend/src/main/java/com/example/controller/AppController.java
+                - backend/src/main/java/com/example/service/AppService.java
+                - backend/src/main/resources/application.yml
+                - backend/pom.xml
+                需求摘要：%s
+                原始需求：%s
+                """.formatted(summary, prompt));
+
+        List<CodeFile> files = new ArrayList<>(fileToolService.snapshotFiles());
+        if (files.stream().noneMatch(f -> "index.html".equals(f.getPath()))) {
+            files.addAll(0, generateSingleHtml(prompt));
+        }
+        return files;
     }
 
     private List<CodeFile> defaultVueScaffold(String prompt) {
@@ -162,6 +204,11 @@ public class GenerateNode implements NodeAction<WorkflowState> {
 
     interface MultiFileAgent {
         @SystemMessage("你是多文件 HTML 生成器，必须通过 createFile 工具创建文件。")
+        String generate(@UserMessage String prompt);
+    }
+
+    interface FullStackAgent {
+        @SystemMessage("你是全栈工程师，必须通过 createFile 工具分别创建前端 index.html 与 Spring Boot 后端文件。")
         String generate(@UserMessage String prompt);
     }
 }
