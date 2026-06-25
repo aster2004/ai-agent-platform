@@ -48,8 +48,7 @@ public class AppDeployService {
         String entryPath = resolveEntryPath(files);
         DeployOutcome outcome = strategy.deploy(appId, files, entryPath);
 
-        String stored = DeployUrlCodec.encode(mode, outcome.getStoredReference());
-        appDeployAccessor.updateDeployUrl(appId, stored);
+        appDeployAccessor.saveDeployUrl(appId, mode, outcome.getShareUrl());
 
         return new DeployResultVO(
                 appId,
@@ -69,13 +68,18 @@ public class AppDeployService {
         if (!StringUtils.hasText(stored)) {
             return new DeployResultVO(appId, "", "尚未部署", "", "");
         }
-        DeployUrlCodec.DeployReference reference = DeployUrlCodec.parse(stored);
+        var refs = DeployUrlCodec.parseAllEntries(stored);
+        if (refs.isEmpty()) {
+            return new DeployResultVO(appId, "", "尚未部署", "", "");
+        }
+        DeployUrlCodec.DeployReference last = refs.get(refs.size() - 1);
+        String deployUrl = shareUrlResolver.resolveFullUrlFromReference(last);
         return new DeployResultVO(
                 appId,
-                shareUrlResolver.buildShareUrl(reference),
+                deployUrl,
                 "已部署",
-                reference.mode().getCode(),
-                reference.mode().getLabel()
+                last.mode().getCode(),
+                last.mode().getLabel()
         );
     }
 

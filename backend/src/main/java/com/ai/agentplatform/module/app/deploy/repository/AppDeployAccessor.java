@@ -1,9 +1,12 @@
 package com.ai.agentplatform.module.app.deploy.repository;
 
 import com.ai.agentplatform.common.exception.BusinessException;
-import com.ai.agentplatform.module.app.deploy.support.AppDeployConstants;
+import com.ai.agentplatform.module.app.deploy.enums.DeployMode;
+import com.ai.agentplatform.module.app.deploy.mapper.AppDeployMapper;
+import com.ai.agentplatform.module.app.deploy.mapper.AppDeployRecord;
+import com.ai.agentplatform.module.app.deploy.support.DeployUrlCodec;
+import com.ai.agentplatform.module.app.deploy.support.ShareUrlResolver;
 import lombok.RequiredArgsConstructor;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.Map;
@@ -13,24 +16,20 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AppDeployAccessor {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final AppDeployMapper appDeployMapper;
+    private final ShareUrlResolver shareUrlResolver;
 
     public Map<String, Object> findAppDeployInfo(Long appId) {
-        return jdbcTemplate.query(
-                "SELECT id, app_name, app_code, deploy_url, cover_img FROM " + AppDeployConstants.APP_TABLE + " WHERE id = ?",
-                rs -> {
-                    if (!rs.next()) {
-                        return null;
-                    }
-                    return Map.of(
-                            "id", rs.getLong("id"),
-                            "appName", rs.getString("app_name"),
-                            "appCode", Optional.ofNullable(rs.getString("app_code")).orElse(""),
-                            "deployUrl", Optional.ofNullable(rs.getString("deploy_url")).orElse(""),
-                            "coverImg", Optional.ofNullable(rs.getString("cover_img")).orElse("")
-                    );
-                },
-                appId
+        AppDeployRecord record = appDeployMapper.selectDeployInfo(appId);
+        if (record == null) {
+            return null;
+        }
+        return Map.of(
+                "id", record.getId(),
+                "appName", record.getAppName(),
+                "appCode", Optional.ofNullable(record.getAppCode()).orElse(""),
+                "deployUrl", Optional.ofNullable(record.getDeployUrl()).orElse(""),
+                "coverImg", Optional.ofNullable(record.getCoverImg()).orElse("")
         );
     }
 
@@ -56,11 +55,23 @@ public class AppDeployAccessor {
         return (String) info.get("appName");
     }
 
-    public void updateDeployUrl(Long appId, String deployUrl) {
-        jdbcTemplate.update("UPDATE " + AppDeployConstants.APP_TABLE + " SET deploy_url = ? WHERE id = ?", deployUrl, appId);
+    public void saveDeployUrl(Long appId, DeployMode mode, String shareUrl) {
+        AppDeployRecord record = appDeployMapper.selectDeployInfo(appId);
+        String existing = record != null ? Optional.ofNullable(record.getDeployUrl()).orElse("") : "";
+        String merged = DeployUrlCodec.merge(
+                existing,
+                mode,
+                shareUrl,
+                DeployUrlCodec::parseEntry,
+                shareUrlResolver::resolveFullUrlFromReference
+        );
+        if (merged.equals(existing.trim())) {
+            return;
+        }
+        appDeployMapper.updateDeployUrl(appId, merged);
     }
 
     public void updateCoverImg(Long appId, String coverImg) {
-        jdbcTemplate.update("UPDATE " + AppDeployConstants.APP_TABLE + " SET cover_img = ? WHERE id = ?", coverImg, appId);
+        appDeployMapper.updateCoverImg(appId, coverImg);
     }
 }
