@@ -2,6 +2,7 @@ package com.ai.agentplatform.module.codegen.workflow.service;
 
 import com.ai.agentplatform.common.util.SecurityUtils;
 import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
+import com.ai.agentplatform.module.codegen.workflow.dto.ContinueWorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.UpdatePrdRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.WorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.entity.CodeGenerate;
@@ -59,6 +60,7 @@ public class CodeGenWorkflowService {
     private final GenerateNode generateNode;
     private final ValidateNode validateNode;
     private final CodeGenerateRepository codeGenerateRepository;
+    private final WorkflowRecordPersistence recordPersistence;
     private final AppSyncHelper appSyncHelper;
     private final ObjectMapper objectMapper;
 
@@ -123,15 +125,17 @@ public class CodeGenWorkflowService {
     }
 
     /** 用户确认 PRD 后继续生成应用 */
-    public SseEmitter executeContinueStream(Long generateId) {
-        return runContinueStream(generateId);
+    public SseEmitter executeContinueStream(Long generateId, ContinueWorkflowRequest request) {
+        String fallbackPrd = request != null ? request.getPrdContent() : null;
+        String fallbackSummary = request != null ? request.getSummary() : null;
+        return runContinueStream(generateId, fallbackPrd, fallbackSummary);
     }
 
     public WorkflowResultVO updatePrd(Long generateId, UpdatePrdRequest request) {
         CodeGenerate record = loadRecord(generateId);
-        PendingState pending = readPendingState(record);
+        PendingState pending = resolvePendingState(record, request.getPrdContent(), null);
         pending.setPrd(request.getPrdContent());
-        savePendingState(record, pending);
+        persistAwaitState(record, pending, record.getDuration());
         return WorkflowResultVO.builder()
                 .generateId(record.getId())
                 .phase(PHASE_AWAIT)
@@ -159,7 +163,7 @@ public class CodeGenWorkflowService {
                             throw new RuntimeException(e);
                         }
                     }
-                });
+                }, false);
 
                 sendTask(emitter, tasks, "save_file", "保存内容 需求文档.md", "prd.md");
                 PendingState pending = new PendingState();
@@ -167,12 +171,10 @@ public class CodeGenWorkflowService {
                 pending.setSummary(finalState.summary());
                 pending.setPrd(finalState.prd());
                 pending.setTasks(tasks);
-                savePendingState(record, pending);
-
-                record.setWorkflowStep(WorkflowStep.PRD_READY.getCode());
-                record.setGenerateStatus(0);
-                record.setDuration((int) (System.currentTimeMillis() - start));
-                codeGenerateRepository.save(record);
+                if (!hasText(pending.getPrd())) {
+                    throw new IllegalStateException("PRD 生成结果为空，请重试");
+                }
+                persistAwaitState(record, pending, (int) (System.currentTimeMillis() - start));
 
                 WorkflowResultVO result = WorkflowResultVO.builder()
                         .generateId(record.getId())
@@ -198,14 +200,16 @@ public class CodeGenWorkflowService {
         return emitter;
     }
 
-    private SseEmitter runContinueStream(Long generateId) {
+    private SseEmitter runContinueStream(Long generateId, String fallbackPrd, String fallbackSummary) {
         SseEmitter emitter = new SseEmitter(600_000L);
         long start = System.currentTimeMillis();
-        CodeGenerate record = loadRecord(generateId);
-        PendingState pending = readPendingState(record);
 
         Thread.startVirtualThread(() -> {
+            CodeGenerate record = null;
             try {
+                record = loadRecord(generateId);
+                PendingState pending = resolvePendingState(record, fallbackPrd, fallbackSummary);
+
                 Map<String, Object> init = new HashMap<>();
                 init.put(WorkflowState.PROMPT_KEY, record.getPrompt());
                 init.put(WorkflowState.SUMMARY_KEY, pending.getSummary());
@@ -263,7 +267,9 @@ public class CodeGenWorkflowService {
 
     private void handleStreamError(SseEmitter emitter, CodeGenerate record, Exception e) {
         log.error("工作流流式执行失败", e);
-        markFailed(record, e.getMessage());
+        if (record != null) {
+            markFailed(record, e.getMessage());
+        }
         try {
             sendEvent(emitter, WorkflowStepEvent.builder()
                     .type("error")
@@ -285,6 +291,11 @@ public class CodeGenWorkflowService {
 
     private WorkflowState runGraph(CompiledGraph<WorkflowState> graph, Map<String, Object> init,
                                    Consumer<WorkflowStep> stepListener) {
+        return runGraph(graph, init, stepListener, true);
+    }
+
+    private WorkflowState runGraph(CompiledGraph<WorkflowState> graph, Map<String, Object> init,
+                                   Consumer<WorkflowStep> stepListener, boolean notifyDone) {
         WorkflowState finalState = null;
         WorkflowStep lastNotified = null;
 
@@ -303,7 +314,9 @@ public class CodeGenWorkflowService {
         if (finalState == null) {
             throw new IllegalStateException("工作流未产生任何状态");
         }
-        stepListener.accept(WorkflowStep.DONE);
+        if (notifyDone) {
+            stepListener.accept(WorkflowStep.DONE);
+        }
         return finalState;
     }
 
@@ -317,7 +330,7 @@ public class CodeGenWorkflowService {
         record.setGenerateStatus(0);
         record.setModelName(modelName);
         record.setWorkflowStep(WorkflowStep.ANALYZE.getCode());
-        return codeGenerateRepository.save(record);
+        return recordPersistence.save(record);
     }
 
     private CodeGenerate loadRecord(Long generateId) {
@@ -344,7 +357,7 @@ public class CodeGenWorkflowService {
         record.setErrorMsg(error);
         record.setDuration(duration);
         record.setWorkflowStep(state.currentStep());
-        codeGenerateRepository.save(record);
+        recordPersistence.save(record);
 
         if (success && !files.isEmpty()) {
             appSyncHelper.syncCodeFilesToApp(record.getAppId(), files);
@@ -364,37 +377,81 @@ public class CodeGenWorkflowService {
                 .build();
     }
 
-    private void savePendingState(CodeGenerate record, PendingState pending) {
+    private void persistAwaitState(CodeGenerate record, PendingState pending, Integer durationMs) {
         try {
             String json = objectMapper.writeValueAsString(pending);
-            record.setCodeContent(PENDING_PREFIX + json);
-            codeGenerateRepository.save(record);
+            recordPersistence.persistAwaitState(record, PENDING_PREFIX + json, durationMs);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("保存 PRD 状态失败", e);
         }
     }
 
-    private PendingState readPendingState(CodeGenerate record) {
+    /**
+     * 解析待确认工作流状态。DB 缺失时，可用请求体中的 PRD 内容重建（如从 SSE 事件恢复）。
+     */
+    private PendingState resolvePendingState(CodeGenerate record, String fallbackPrd, String fallbackSummary) {
+        PendingState fromDb = tryReadPendingState(record);
+        if (fromDb != null && hasText(fromDb.getPrd())) {
+            return fromDb;
+        }
+
+        String prd = hasText(fallbackPrd)
+                ? fallbackPrd
+                : (fromDb != null ? fromDb.getPrd() : null);
+        String summary = fromDb != null && hasText(fromDb.getSummary())
+                ? fromDb.getSummary()
+                : (hasText(fallbackSummary) ? fallbackSummary : record.getPrompt());
+
+        if (!hasText(prd)) {
+            if (WorkflowStep.PRD_READY.getCode().equals(record.getWorkflowStep())) {
+                throw new IllegalStateException("PRD 数据缺失，请重新执行深度分析");
+            }
+            throw new IllegalStateException("记录中无 PRD 数据，请先执行深度分析");
+        }
+
+        PendingState pending = fromDb != null ? fromDb : new PendingState();
+        pending.setPhase(PHASE_AWAIT);
+        pending.setSummary(summary);
+        pending.setPrd(prd);
+        if (pending.getTasks() == null) {
+            pending.setTasks(new ArrayList<>());
+        }
+        persistAwaitState(record, pending, record.getDuration());
+        return pending;
+    }
+
+    private PendingState tryReadPendingState(CodeGenerate record) {
         String raw = record.getCodeContent();
         if (raw == null || raw.isBlank()) {
-            return recoverPendingFromRecord(record);
+            return null;
         }
 
         String trimmed = raw.trim();
         if (trimmed.startsWith(PENDING_PREFIX)) {
-            return parsePendingJson(trimmed.substring(PENDING_PREFIX.length()));
+            try {
+                return parsePendingJson(trimmed.substring(PENDING_PREFIX.length()));
+            } catch (IllegalStateException e) {
+                log.warn("解析 PENDING 状态失败 generateId={}: {}", record.getId(), e.getMessage());
+                return null;
+            }
         }
         if (trimmed.startsWith("[")) {
             throw new IllegalStateException("该记录已完成生成，请重新发起深度分析");
         }
-        if (!trimmed.startsWith("{")) {
-            PendingState pending = new PendingState();
-            pending.setPhase(PHASE_AWAIT);
-            pending.setPrd(raw);
-            pending.setSummary(record.getPrompt());
-            return pending;
+        if (trimmed.startsWith("{")) {
+            try {
+                return parsePendingJson(trimmed);
+            } catch (IllegalStateException e) {
+                log.warn("解析 JSON 状态失败 generateId={}: {}", record.getId(), e.getMessage());
+                return null;
+            }
         }
-        return parsePendingJson(trimmed);
+
+        PendingState pending = new PendingState();
+        pending.setPhase(PHASE_AWAIT);
+        pending.setPrd(raw);
+        pending.setSummary(record.getPrompt());
+        return pending;
     }
 
     private PendingState parsePendingJson(String json) {
@@ -414,21 +471,15 @@ public class CodeGenWorkflowService {
         }
     }
 
-    private PendingState recoverPendingFromRecord(CodeGenerate record) {
-        if (WorkflowStep.PRD_READY.getCode().equals(record.getWorkflowStep())) {
-            PendingState pending = new PendingState();
-            pending.setPhase(PHASE_AWAIT);
-            pending.setSummary(record.getPrompt());
-            throw new IllegalStateException("PRD 数据缺失，请重新执行深度分析");
-        }
-        throw new IllegalStateException("记录中无 PRD 数据，请先执行深度分析");
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private void markFailed(CodeGenerate record, String error) {
         record.setGenerateStatus(2);
         record.setErrorMsg(error);
         record.setWorkflowStep(WorkflowStep.DONE.getCode());
-        codeGenerateRepository.save(record);
+        recordPersistence.save(record);
     }
 
     private String resolveGenerateType(String strategy) {
@@ -471,7 +522,8 @@ public class CodeGenWorkflowService {
     private static class PendingState {
         private String phase = PHASE_AWAIT;
         private String summary;
-        @com.fasterxml.jackson.annotation.JsonAlias({"prdContent"})
+        @com.fasterxml.jackson.annotation.JsonProperty("prdContent")
+        @com.fasterxml.jackson.annotation.JsonAlias({"prd"})
         private String prd;
         private List<WorkflowTaskVO> tasks = new ArrayList<>();
     }

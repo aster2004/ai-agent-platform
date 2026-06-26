@@ -31,7 +31,8 @@
         深度分析
       </button>
 
-      <!-- 输出格式切换 -->
+      <!-- 输出格式切换（仅快速生成） -->
+      <template v-if="runMode === 'fast'">
       <div class="output-trigger" @click="toggleFormatMenu" ref="formatTriggerRef">
         <span class="output-current">{{ displayFormatType }}</span>
         <svg
@@ -58,8 +59,11 @@
           </div>
         </Transition>
       </div>
+      </template>
+      <span v-else class="deep-mode-hint">AI 自动识别代码类型</span>
 
-      <!-- 输出方式切换 -->
+      <!-- 输出方式切换（仅快速生成） -->
+      <template v-if="runMode === 'fast'">
       <div class="output-trigger" @click="toggleOutputMenu" ref="outputTriggerRef">
         <span class="output-current">{{ outputMode === 'stream' ? '流式' : '同步' }}</span>
         <svg
@@ -92,6 +96,7 @@
           </div>
         </Transition>
       </div>
+      </template>
     </div>
   </div>
 </template>
@@ -422,5 +427,14 @@ textarea:focus {
 
 .home-input {
   /* 占位 */
+}
+
+.deep-mode-hint {
+  padding: 5px 12px;
+  border-radius: 16px;
+  background: #f0f5ff;
+  border: 1px solid #d6e4ff;
+  color: #1677ff;
+  font-size: 12px;
 }
 </style>

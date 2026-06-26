@@ -1,6 +1,7 @@
 package com.ai.agentplatform.module.codegen.workflow.controller;
 
 import com.ai.agentplatform.common.result.Result;
+import com.ai.agentplatform.module.codegen.workflow.dto.ContinueWorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.UpdatePrdRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.WorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.service.CodeGenWorkflowService;
@@ -35,8 +36,8 @@ public class WorkflowController {
         return Result.success(workflowService.execute(request));
     }
 
-    // 显式声明 charset=UTF-8，防止 Windows 上浏览器按系统默认编码（GBK）解析导致乱码
-    private static final String SSE_PRODUCES = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8";
+    // 使用标准 SSE 类型，避免 Vite/Node 代理解析 text/event-stream;charset=UTF-8 报 Invalid header token
+    private static final String SSE_PRODUCES = MediaType.TEXT_EVENT_STREAM_VALUE;
 
     @Operation(summary = "流式执行 LangGraph 工作流（全量）")
     @PostMapping(value = "/stream", produces = SSE_PRODUCES)
@@ -59,7 +60,8 @@ public class WorkflowController {
 
     @Operation(summary = "确认需求文档后生成应用（阶段二）")
     @PostMapping(value = "/{generateId}/continue/stream", produces = SSE_PRODUCES)
-    public SseEmitter continueStream(@PathVariable Long generateId) {
-        return workflowService.executeContinueStream(generateId);
+    public SseEmitter continueStream(@PathVariable Long generateId,
+                                     @RequestBody(required = false) ContinueWorkflowRequest request) {
+        return workflowService.executeContinueStream(generateId, request);
     }
 }

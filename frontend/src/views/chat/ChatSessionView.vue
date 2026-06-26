@@ -31,8 +31,17 @@
       </a-tooltip>
     </div>
 
-    <!-- ====== 主聊天区域 ====== -->
-    <div class="main-chat" :class="{ 'with-preview': previewVisible }">
+    <!-- ====== 主聊天区域（深度分析三栏 / 普通双栏） ====== -->
+    <div
+      class="main-chat"
+      :class="{ 'with-preview': previewVisible && !workspaceMode, 'workspace-mode': workspaceMode }"
+      ref="workspaceRef"
+    >
+      <div
+        class="col-chat"
+        :class="{ 'col-chat-fixed': workspaceMode }"
+        :style="workspaceMode ? { width: `${columnWidths.chat}px` } : undefined"
+      >
       <!-- 消息列表 -->
       <div class="msg-list" ref="msgListRef">
         <div v-if="loadingHistory" class="loading-tip">加载中...</div>
@@ -152,10 +161,22 @@
       <div class="input-wrap">
         <ChatInput ref="chatInputRef" compact @send="handleSend" :is-home="false" />
       </div>
+      </div>
+
+      <template v-if="workspaceMode">
+        <ColumnResizer @start="beginResize(0, $event)" />
+        <DeepWorkspace
+          :files="workspaceFiles"
+          :generating="generating"
+          :tree-width="columnWidths.tree"
+          @resize-tree-start="beginResize(1, $event)"
+        />
+      </template>
     </div>
 
-    <!-- ====== 右侧预览面板（内置拖拽把手 + 折叠按钮） ====== -->
+    <!-- ====== 右侧预览面板（快速生成模式） ====== -->
     <ChatPreviewPanel
+        v-if="!workspaceMode"
         :content="previewContent"
         :visible="previewVisible"
         :width="previewWidth"
@@ -175,11 +196,16 @@ import ChatMessage from '@/components/chat/ChatMessage.vue'
 import AiStreamMessage from '@/components/chat/AiStreamMessage.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import ChatPreviewPanel from '@/components/chat/ChatPreviewPanel.vue'
+import DeepWorkspace from '@/components/chat/DeepWorkspace.vue'
+import ColumnResizer from '@/components/chat/ColumnResizer.vue'
 import { getSessionList, getHistoryMsg, saveChatMessage, saveAiMessage, deleteSession, createSession, deleteMessage, renameSession } from '@/api/chat'
-import { generateCodeStream, analyzeWorkflowStream, generateCode } from '@/api/codegen'
+import { generateCodeStream, analyzeWorkflowStream, continueWorkflowStream, generateCode } from '@/api/codegen'
 import { readSseStream } from '@/utils/codegenStream'
 import { splitAiContent } from '@/utils/splitMultiFile'
+import { formatCodeFilesToContent, formatPrdSummary } from '@/utils/formatCodeFiles'
+import { useColumnResize } from '@/composables/useColumnResize'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
+import type { CodeFile, WorkflowResult, WorkflowStepEvent, WorkflowTask } from '@/types/codegen'
 
 const route = useRoute()
 const router = useRouter()
@@ -199,6 +225,15 @@ const lastFormat = ref('HTML')
 const abortController = ref<AbortController | null>(null)
 const previewVisible = ref(false)
 const collapsedPreview = ref(false)
+const workspaceMode = ref(false)
+const workspaceFiles = ref<CodeFile[]>([])
+const workspaceRef = ref<HTMLElement | null>(null)
+const { widths: columnWidths, beginResize } = useColumnResize(
+  () => workspaceRef.value,
+  { chat: 360, tree: 240 },
+  { chat: 280, tree: 180 },
+  320,
+)
 const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
 const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
 const previewWidth = ref(getDefaultPreviewWidth())
@@ -327,6 +362,8 @@ watch(() => route.params.sessionId, async (newId) => {
     generatingError.value = ''
     previewVisible.value = false
     collapsedPreview.value = false
+    workspaceMode.value = false
+    workspaceFiles.value = []
     activePreviewMsgId.value = null
     await loadMessages(id)
   }
@@ -460,15 +497,22 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
 
   try {
     if (mode === 'deep') {
+      workspaceMode.value = true
+      workspaceFiles.value = []
+      showSidebar.value = false
       await runDeepAnalyze(activeSessionId.value, prompt, controller.signal)
-    } else if (output === 'sync') {
-      await runFastGenerateSync(activeSessionId.value, prompt, format)
     } else {
-      await runFastGenerate(activeSessionId.value, prompt, format, controller.signal)
-    }
-    // 生成完成后自动弹出预览（如果有 HTML 内容）
-    if (hasPreviewContent.value) {
-      previewVisible.value = true
+      workspaceMode.value = false
+      workspaceFiles.value = []
+      if (output === 'sync') {
+        await runFastGenerateSync(activeSessionId.value, prompt, format)
+      } else {
+        await runFastGenerate(activeSessionId.value, prompt, format, controller.signal)
+      }
+      // 生成完成后自动弹出预览（如果有 HTML 内容）
+      if (hasPreviewContent.value) {
+        previewVisible.value = true
+      }
     }
   } catch (e: any) {
     // 用户主动停止 → 不是错误，静默处理
@@ -635,67 +679,115 @@ async function runFastGenerateSync(sessionId: number, prompt: string, format = '
   streamingContent.value = ''
 }
 
+function appendWorkflowProgress(phaseText: string, event: WorkflowStepEvent): string {
+  if (event.type === 'task' && event.data) {
+    const task = event.data as WorkflowTask
+    return `${phaseText}- ${task.label ?? '执行任务中...'}\n`
+  }
+  if (event.type === 'step' && event.message) {
+    return `${phaseText}**${event.message}**\n\n`
+  }
+  return phaseText
+}
+
+async function consumeWorkflowStream(
+  response: Response,
+  onEvent: (event: WorkflowStepEvent) => void,
+) {
+  await readSseStream(response, (eventName, data) => {
+    if (eventName !== 'workflow') return
+    try {
+      onEvent(JSON.parse(data) as WorkflowStepEvent)
+    } catch {
+      // ignore malformed chunk
+    }
+  })
+}
+
 /**
- * 深度分析模式：流式调用 /api/codegen/workflow/analyze/stream
+ * 深度分析：阶段一分析 PRD → 阶段二自动继续生成代码 → 三栏展示
  */
 async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortSignal) {
-  const response = await analyzeWorkflowStream({
-    prompt,
-    sessionId,
-  }, signal)
-
-  let receivedContent = ''
   let phaseText = ''
+  let generateId: number | undefined
+  let prdSummary = ''
+  let cachedPrdContent = ''
+  let cachedSummary = ''
 
-  await readSseStream(response, (eventName, data) => {
-    try {
-      const event = JSON.parse(data)
-      if (event.type === 'step' && event.message) {
-        phaseText += `**${event.message}**\n\n`
-        streamingContent.value = phaseText + receivedContent
-        scrollToBottom()
-      } else if (event.type === 'prd_ready' && event.data) {
-        const result = event.data
-        receivedContent = `## 📋 需求分析结果\n\n`
-        if (result.summary) receivedContent += `### 需求摘要\n${result.summary}\n\n`
-        if (result.prdContent) receivedContent += `### 产品文档\n${result.prdContent}\n\n`
-        if (result.strategy) receivedContent += `### 推荐策略\n${result.strategy}\n\n`
-        if (result.durationMs) receivedContent += `---\n⏱ 耗时：${(result.durationMs / 1000).toFixed(1)}s\n`
-        streamingContent.value = receivedContent
-        scrollToBottom()
-      } else if (event.type === 'done' && event.data) {
-        const result = event.data
-        let content = '## ✅ 深度分析完成\n\n'
-        if (result.summary) content += `### 分析摘要\n${result.summary}\n\n`
-        if (result.strategy) content += `### 策略\n${result.strategy}\n\n`
-        if (result.validated != null) content += `### 校验结果\n${result.validated ? '✅ 通过' : '❌ 未通过'}\n\n`
-        if (result.durationMs) content += `---\n⏱ 耗时：${(result.durationMs / 1000).toFixed(1)}s\n`
-        streamingContent.value = content
-        receivedContent = content
-        scrollToBottom()
-      } else if (event.type === 'task') {
-        const task = event.data
-        if (task) {
-          phaseText += `- ${task.label ?? '执行任务中...'}\n`
-          streamingContent.value = phaseText
-          scrollToBottom()
-        }
-      }
-    } catch {
-      receivedContent += data
-      streamingContent.value = receivedContent
+  const analyzeResponse = await analyzeWorkflowStream({ prompt, sessionId }, signal)
+  await consumeWorkflowStream(analyzeResponse, (event) => {
+    if (event.type === 'error') {
+      throw new Error(event.message || '深度分析失败')
+    }
+    phaseText = appendWorkflowProgress(phaseText, event)
+    streamingContent.value = phaseText
+    scrollToBottom()
+
+    if (event.type === 'prd_ready' && event.data) {
+      const result = event.data as WorkflowResult
+      generateId = result.generateId
+      cachedPrdContent = result.prdContent ?? ''
+      cachedSummary = result.summary ?? ''
+      prdSummary = formatPrdSummary(result)
+      streamingContent.value = `${phaseText}\n\n${prdSummary}`
       scrollToBottom()
     }
   })
 
-  const final = streamingContent.value || receivedContent || phaseText
-  if (final) {
-    // 多文件拆分为多条消息，每条一个气泡
-    const parts = splitAiContent(final)
+  if (!generateId) {
+    throw new Error('需求分析未完成，未获取到生成记录')
+  }
+  if (!cachedPrdContent.trim()) {
+    throw new Error('需求文档为空，请重试深度分析')
+  }
+
+  message.info('需求文档已生成，正在自动创作应用...')
+  phaseText += `\n**正在根据需求文档生成应用...**\n\n`
+  streamingContent.value = phaseText + prdSummary
+  scrollToBottom()
+
+  let codeFiles: CodeFile[] = []
+  const continueResponse = await continueWorkflowStream(generateId, {
+    prdContent: cachedPrdContent,
+    summary: cachedSummary,
+  }, signal)
+  await consumeWorkflowStream(continueResponse, (event) => {
+    if (event.type === 'error') {
+      throw new Error(event.message || '代码生成失败')
+    }
+    phaseText = appendWorkflowProgress(phaseText, event)
+    streamingContent.value = phaseText + (prdSummary ? `\n\n${prdSummary}` : '')
+    scrollToBottom()
+
+    if (event.type === 'done' && event.data) {
+      const result = event.data as WorkflowResult
+      codeFiles = result.codeFiles ?? []
+      workspaceFiles.value = codeFiles
+      if (result.strategy) {
+        phaseText += `\n**策略：** ${result.strategy}\n`
+      }
+      if (result.validated != null) {
+        phaseText += `**校验：** ${result.validated ? '通过' : '未通过'}\n`
+      }
+      streamingContent.value = phaseText
+    }
+  })
+
+  if (prdSummary) {
+    await saveAiMessage(sessionId, null, prdSummary)
+  }
+
+  if (codeFiles.length) {
+    const codeContent = formatCodeFilesToContent(codeFiles)
+    const parts = splitAiContent(codeContent)
     for (const part of parts) {
       await saveAiMessage(sessionId, null, part)
     }
+    message.success(`应用生成完成，共 ${codeFiles.length} 个文件`)
+  } else {
+    throw new Error('代码生成完成但未返回文件，请重试')
   }
+
   await loadMessages(sessionId)
   streamingContent.value = ''
 }
@@ -860,6 +952,37 @@ function cancelSelectMode() {
   min-width: 0;
   height: 100%;
   background: #fff;
+}
+
+.main-chat.workspace-mode {
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.col-chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
+
+.col-chat.col-chat-fixed {
+  flex: none;
+  border-right: 1px solid #eceef2;
+}
+
+.col-chat-fixed .msg-list {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+}
+
+.col-chat-fixed .input-wrap,
+.col-chat-fixed .action-row {
+  max-width: none;
+  width: 100%;
+  margin: 0;
 }
 
 /* 开启预览时，聊天区不设固定最大宽度，由 flex 自然分配 */

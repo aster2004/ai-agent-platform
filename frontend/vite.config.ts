@@ -15,6 +15,9 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        // 普通 REST 走代理；SSE 流式接口已在 codegen.ts 中直连后端
+        timeout: 0,
+        proxyTimeout: 0,
       },
       '/uploads': {
         target: 'http://localhost:8080',
