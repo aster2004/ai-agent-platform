@@ -2,12 +2,16 @@ package com.ai.agentplatform.module.app.service;
 
 import com.ai.agentplatform.common.exception.BusinessException;
 import com.ai.agentplatform.common.util.SecurityUtils;
+import com.ai.agentplatform.module.app.deploy.service.AppCoverAutoGenerateService;
 import com.ai.agentplatform.module.app.dto.AppCodeUpdateRequest;
 import com.ai.agentplatform.module.app.dto.AppCreateRequest;
 import com.ai.agentplatform.module.app.dto.AppUpdateRequest;
 import com.ai.agentplatform.module.app.entity.App;
 import com.ai.agentplatform.module.app.repository.AppRepository;
 import com.ai.agentplatform.module.app.vo.AppVO;
+import com.ai.agentplatform.module.chat.entity.ChatSession;
+import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
+import com.ai.agentplatform.module.codegen.workflow.repository.CodeGenerateRepository;
 import com.ai.agentplatform.module.user.entity.User;
 import com.ai.agentplatform.module.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +19,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -31,6 +38,9 @@ public class AppService {
 
     private final AppRepository appRepository;
     private final UserRepository userRepository;
+    private final CodeGenerateRepository codeGenerateRepository;
+    private final ChatSessionRepository chatSessionRepository;
+    private final AppCoverAutoGenerateService appCoverAutoGenerateService;
 
     @Transactional
     public AppVO create(AppCreateRequest request, Long userId) {
@@ -44,8 +54,10 @@ public class AppService {
     }
 
     public Page<AppVO> listByUser(Long userId, int page, int size) {
-        return appRepository.findByUserIdAndStatus(userId, STATUS_NORMAL, PageRequest.of(page, size))
-                .map(AppVO::from);
+        Page<App> appPage = appRepository.findByUserIdAndStatus(userId, STATUS_NORMAL, PageRequest.of(page, size));
+        Page<AppVO> result = enrichWithCreatorName(appPage);
+        result.getContent().forEach(this::scheduleCoverIfNeeded);
+        return result;
     }
 
     public Page<AppVO> listAllForAdmin(int page, int size, Integer isFeatured) {
@@ -56,9 +68,8 @@ public class AppService {
     }
 
     public List<AppVO> listFeatured() {
-        return appRepository.findByIsFeaturedAndStatusOrderByCreateTimeDesc(1, STATUS_NORMAL).stream()
-                .map(AppVO::from)
-                .toList();
+        List<App> apps = appRepository.findByIsFeaturedAndStatusOrderByCreateTimeDesc(1, STATUS_NORMAL);
+        return enrichListWithCreatorName(apps);
     }
 
     public AppVO getById(Long id) {
@@ -66,6 +77,40 @@ public class AppService {
                 .orElseThrow(() -> new BusinessException("应用不存在"));
         ensureAccessible(app);
         return AppVO.from(app);
+    }
+
+    public Long resolveSessionId(Long appId, Long userId) {
+        App app = appRepository.findById(appId)
+                .orElseThrow(() -> new BusinessException("应用不存在"));
+        ensureAccessible(app);
+        if (!app.getUserId().equals(userId) && !SecurityUtils.isAdmin()) {
+            throw new BusinessException("无权访问该应用");
+        }
+
+        return codeGenerateRepository.findFirstByAppIdAndSessionIdNotNullOrderByCreateTimeDesc(appId)
+                .map(record -> verifyOwnedSession(record.getSessionId(), userId))
+                .or(() -> chatSessionRepository
+                        .findByUserIdAndAppIdOrderByLastMessageTimeDescCreateTimeDesc(
+                                userId, appId, PageRequest.of(0, 1))
+                        .stream()
+                        .findFirst()
+                        .map(ChatSession::getId))
+                .or(() -> chatSessionRepository
+                        .findByUserIdOrderByLastMessageTimeDescCreateTimeDesc(userId, PageRequest.of(0, 50))
+                        .stream()
+                        .filter(session -> app.getAppName().equals(session.getSessionTitle()))
+                        .findFirst()
+                        .map(ChatSession::getId))
+                .orElseThrow(() -> new BusinessException("未找到该应用对应的对话"));
+    }
+
+    private Long verifyOwnedSession(Long sessionId, Long userId) {
+        ChatSession session = chatSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException("未找到该应用对应的对话"));
+        if (!session.getUserId().equals(userId) && !SecurityUtils.isAdmin()) {
+            throw new BusinessException("无权访问该对话");
+        }
+        return session.getId();
     }
 
     @Transactional
@@ -101,7 +146,37 @@ public class AppService {
                 .orElseThrow(() -> new BusinessException("应用不存在"));
         ensureAccessible(app);
         app.setAppCode(request.getCodeContent());
-        return AppVO.from(appRepository.save(app));
+        App saved = appRepository.save(app);
+        if (!StringUtils.hasText(saved.getCoverImg())) {
+            scheduleCoverGenerationAfterCommit(id);
+        }
+        return AppVO.from(saved);
+    }
+
+    private void scheduleCoverGenerationAfterCommit(Long appId) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            appCoverAutoGenerateService.scheduleIfMissing(appId);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                appCoverAutoGenerateService.scheduleIfMissing(appId);
+            }
+        });
+    }
+
+    private void scheduleCoverIfNeeded(AppVO vo) {
+        if (vo == null || vo.getId() == null) {
+            return;
+        }
+        if (StringUtils.hasText(vo.getCoverImg())) {
+            return;
+        }
+        if (!StringUtils.hasText(vo.getAppCode())) {
+            return;
+        }
+        appCoverAutoGenerateService.scheduleIfMissing(vo.getId());
     }
 
     @Transactional
@@ -120,17 +195,33 @@ public class AppService {
     }
 
     private Page<AppVO> enrichWithCreatorName(Page<App> appPage) {
-        Set<Long> userIds = appPage.getContent().stream()
-                .map(App::getUserId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, String> creatorNames = userRepository.findAllById(userIds).stream()
-                .collect(Collectors.toMap(User::getId, this::resolveDisplayName, (a, b) -> a));
+        Map<Long, String> creatorNames = loadCreatorNames(appPage.getContent());
         return appPage.map(app -> {
             AppVO vo = AppVO.from(app);
             vo.setCreatorName(creatorNames.get(app.getUserId()));
             return vo;
         });
+    }
+
+    private List<AppVO> enrichListWithCreatorName(List<App> apps) {
+        Map<Long, String> creatorNames = loadCreatorNames(apps);
+        return apps.stream().map(app -> {
+            AppVO vo = AppVO.from(app);
+            vo.setCreatorName(creatorNames.get(app.getUserId()));
+            return vo;
+        }).toList();
+    }
+
+    private Map<Long, String> loadCreatorNames(List<App> apps) {
+        Set<Long> userIds = apps.stream()
+                .map(App::getUserId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, this::resolveDisplayName, (a, b) -> a));
     }
 
     private String resolveDisplayName(User user) {

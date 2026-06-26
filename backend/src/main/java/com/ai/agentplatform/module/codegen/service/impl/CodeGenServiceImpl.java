@@ -12,6 +12,7 @@ import com.ai.agentplatform.module.codegen.service.tool.PromptBuilder;
 import com.ai.agentplatform.module.codegen.service.tool.SseEmitterUtil;
 import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategy;
 import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategyFactory;
+import com.ai.agentplatform.module.codegen.support.CodeGenRequestContext;
 import com.ai.agentplatform.module.codegen.util.CurrentUserUtil;
 import com.ai.agentplatform.module.codegen.util.ParamFillUtil;
 import com.ai.agentplatform.module.codegen.vo.CodeGenPageVO;
@@ -70,14 +71,14 @@ public class CodeGenServiceImpl implements CodeGenService {
     @Transactional(rollbackFor = Exception.class)
     public CodeGenVO generateSync(CodeGenRequest request) {
         Long userId = CurrentUserUtil.getCurrentUserId();
-        Long realAppId = paramFillUtil.fillAppId(request.getAppId());
+        Long existingAppId = request.getAppId();
         String realModel = paramFillUtil.fillModel(request.getModelName());
         String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
         Long sessionId = request.getSessionId();
 
         // GENERAL 模式走工具驱动生成
         if (CodeGenConstant.GENERATE_TYPE_GENERAL.equals(realGenerateType)) {
-            return generateSyncGeneral(request, userId, realAppId, realModel, sessionId);
+            return generateSyncGeneral(request, userId, existingAppId, realModel, sessionId);
         }
 
         // 原有固定格式路径
@@ -97,9 +98,12 @@ public class CodeGenServiceImpl implements CodeGenService {
             String fullResult = strategy.parseResult(aiRawText);
             long costTime = System.currentTimeMillis() - startTime;
 
+            Long appId = appSyncHelper.persistGeneratedApp(
+                    existingAppId, request.getAppName(), request.getPrompt(), fullResult);
+
             CodeGenerate record = new CodeGenerate();
             record.setUserId(userId);
-            record.setAppId(realAppId);
+            record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
             record.setSessionId(sessionId);
             record.setPrompt(request.getPrompt());
             record.setCodeContent(fullResult);
@@ -110,7 +114,6 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setDuration((int) costTime);
             record.setWorkflowStep("");
             mapper.insert(record);
-            appSyncHelper.syncCodeToApp(realAppId, fullResult);
 
             CodeGenVO vo = new CodeGenVO();
             vo.setId(record.getId());
@@ -129,13 +132,13 @@ public class CodeGenServiceImpl implements CodeGenService {
             long costTime = System.currentTimeMillis() - startTime;
             log.error("[同步生成失败] userId={}, model={}, generateType={}, 耗时={}ms",
                     userId, realModel, realGenerateType, costTime, e);
-            return buildFailRecordAndVo(userId, realAppId, sessionId, request.getPrompt(),
+            return buildFailRecordAndVo(userId, existingAppId, sessionId, request.getPrompt(),
                     realModel, realGenerateType, e.getMessage(), costTime);
         }
     }
 
     /** GENERAL 模式同步生成：使用 AiServices + ChatModel + FileToolService 工具驱动 */
-    private CodeGenVO generateSyncGeneral(CodeGenRequest request, Long userId, Long realAppId,
+    private CodeGenVO generateSyncGeneral(CodeGenRequest request, Long userId, Long existingAppId,
                                           String realModel, Long sessionId) {
         fileToolService.reset();
         long startTime = System.currentTimeMillis();
@@ -153,9 +156,12 @@ public class CodeGenServiceImpl implements CodeGenService {
             String filesJson = JSON.toJSONString(files);
             long costTime = System.currentTimeMillis() - startTime;
 
+            Long appId = appSyncHelper.persistGeneratedApp(
+                    existingAppId, request.getAppName(), request.getPrompt(), filesJson);
+
             CodeGenerate record = new CodeGenerate();
             record.setUserId(userId);
-            record.setAppId(realAppId);
+            record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
             record.setSessionId(sessionId);
             record.setPrompt(request.getPrompt());
             record.setCodeContent(filesJson);
@@ -166,7 +172,6 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setDuration((int) costTime);
             record.setWorkflowStep("");
             mapper.insert(record);
-            appSyncHelper.syncCodeToApp(realAppId, filesJson);
 
             CodeGenVO vo = new CodeGenVO();
             vo.setId(record.getId());
@@ -184,7 +189,7 @@ public class CodeGenServiceImpl implements CodeGenService {
         } catch (Exception e) {
             long costTime = System.currentTimeMillis() - startTime;
             log.error("[GENERAL同步生成失败] userId={}, model={}, 耗时={}ms", userId, realModel, costTime, e);
-            return buildFailRecordAndVo(userId, realAppId, sessionId, request.getPrompt(),
+            return buildFailRecordAndVo(userId, existingAppId, sessionId, request.getPrompt(),
                     realModel, CodeGenConstant.GENERATE_TYPE_GENERAL, e.getMessage(), costTime);
         }
     }
@@ -192,12 +197,12 @@ public class CodeGenServiceImpl implements CodeGenService {
     /**
      * 构建生成失败记录入库，返回含错误信息的 VO
      */
-    private CodeGenVO buildFailRecordAndVo(Long userId, Long appId, Long sessionId,
+    private CodeGenVO buildFailRecordAndVo(Long userId, Long existingAppId, Long sessionId,
                                            String prompt, String modelName, String generateType,
                                            String errorMsg, long costTime) {
         CodeGenerate failRecord = new CodeGenerate();
         failRecord.setUserId(userId);
-        failRecord.setAppId(appId);
+        failRecord.setAppId(existingAppId != null ? existingAppId : CodeGenConstant.UNASSIGNED_APP_ID);
         failRecord.setSessionId(sessionId);
         failRecord.setPrompt(prompt);
         failRecord.setCodeContent(null);
@@ -239,17 +244,18 @@ public class CodeGenServiceImpl implements CodeGenService {
     @Override
     public SseEmitter generateStream(CodeGenRequest request) {
         SseEmitter emitter = sseUtil.createEmitter();
-        streamExecutor.execute(() -> {
+        final String authorization = CodeGenRequestContext.captureAuthorization();
+        final Long userId = CurrentUserUtil.getCurrentUserId();
+        streamExecutor.execute(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             try {
-                Long userId = CurrentUserUtil.getCurrentUserId();
-                Long realAppId = paramFillUtil.fillAppId(request.getAppId());
+                Long existingAppId = request.getAppId();
                 String realModel = paramFillUtil.fillModel(request.getModelName());
                 String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
                 Long sessionId = request.getSessionId();
 
                 // GENERAL 模式走工具驱动流式生成
                 if (CodeGenConstant.GENERATE_TYPE_GENERAL.equals(realGenerateType)) {
-                    generateStreamGeneral(emitter, request, userId, realAppId, realModel, sessionId);
+                    generateStreamGeneral(emitter, request, userId, existingAppId, realModel, sessionId);
                     return;
                 }
 
@@ -277,33 +283,37 @@ public class CodeGenServiceImpl implements CodeGenService {
 
                     @Override
                     public void onCompleteResponse(ChatResponse response) {
-                        try {
-                            long costMs = System.currentTimeMillis() - startTimestamp;
-                            String aiRawText = fullContent.toString();
-                            CodeGenStrategy strategy = strategyFactory.getStrategy(realGenerateType);
-                            String totalText = strategy.parseResult(aiRawText);
-
-                            CodeGenerate record = new CodeGenerate();
-                            record.setUserId(userId);
-                            record.setAppId(realAppId);
-                            record.setSessionId(sessionId);
-                            record.setPrompt(request.getPrompt());
-                            record.setCodeContent(totalText);
-                            record.setModelName(realModel);
-                            record.setGenerateType(realGenerateType);
-                            record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
-                            record.setCostTokens(totalText.length());
-                            record.setDuration((int) costMs);
-                            record.setWorkflowStep("BASIC_CODE_GEN");
-                            mapper.insert(record);
-                            appSyncHelper.syncCodeToApp(realAppId, totalText);
-                            sseUtil.sendFinish(emitter, totalText);
-                        } catch (Exception e) {
-                            log.error("流式入库失败", e);
+                        CodeGenRequestContext.runWithAuthorization(authorization, () -> {
                             try {
-                                sseUtil.sendError(emitter, "数据保存失败：" + e.getMessage());
-                            } catch (Exception ignored) {}
-                        }
+                                long costMs = System.currentTimeMillis() - startTimestamp;
+                                String aiRawText = fullContent.toString();
+                                CodeGenStrategy strategy = strategyFactory.getStrategy(realGenerateType);
+                                String totalText = strategy.parseResult(aiRawText);
+
+                                Long appId = appSyncHelper.persistGeneratedApp(
+                                        existingAppId, request.getAppName(), request.getPrompt(), totalText);
+
+                                CodeGenerate record = new CodeGenerate();
+                                record.setUserId(userId);
+                                record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
+                                record.setSessionId(sessionId);
+                                record.setPrompt(request.getPrompt());
+                                record.setCodeContent(totalText);
+                                record.setModelName(realModel);
+                                record.setGenerateType(realGenerateType);
+                                record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+                                record.setCostTokens(totalText.length());
+                                record.setDuration((int) costMs);
+                                record.setWorkflowStep("BASIC_CODE_GEN");
+                                mapper.insert(record);
+                                sseUtil.sendFinish(emitter, totalText);
+                            } catch (Exception e) {
+                                log.error("流式入库失败", e);
+                                try {
+                                    sseUtil.sendError(emitter, "数据保存失败：" + e.getMessage());
+                                } catch (Exception ignored) {}
+                            }
+                        });
                     }
 
                     @Override
@@ -320,7 +330,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                     sseUtil.sendError(emitter, globalEx.getMessage());
                 } catch (Exception ignored) {}
             }
-        });
+        }));
         return emitter;
     }
 
@@ -331,7 +341,7 @@ public class CodeGenServiceImpl implements CodeGenService {
      * AI 完成后一次写入记录 + 推送 finish。
      */
     private void generateStreamGeneral(SseEmitter emitter, CodeGenRequest request,
-                                       Long userId, Long realAppId, String realModel,
+                                       Long userId, Long existingAppId, String realModel,
                                        Long sessionId) {
         fileToolService.reset();
         // 注册回调：每次 AI 调用 createFile 时实时通知前端
@@ -371,10 +381,13 @@ public class CodeGenServiceImpl implements CodeGenService {
 
             String filesJson = JSON.toJSONString(files);
 
+            Long appId = appSyncHelper.persistGeneratedApp(
+                    existingAppId, request.getAppName(), request.getPrompt(), filesJson);
+
             // 写入数据库记录
             CodeGenerate record = new CodeGenerate();
             record.setUserId(userId);
-            record.setAppId(realAppId);
+            record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
             record.setSessionId(sessionId);
             record.setPrompt(request.getPrompt());
             record.setCodeContent(filesJson);
@@ -385,7 +398,6 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setDuration((int) costMs);
             record.setWorkflowStep("BASIC_CODE_GEN");
             mapper.insert(record);
-            appSyncHelper.syncCodeToApp(realAppId, filesJson);
 
             sseUtil.sendFinish(emitter, filesJson);
             log.info("GENERAL 流式生成完成, 文件数={}, 耗时={}ms", files.size(), costMs);
@@ -395,7 +407,7 @@ public class CodeGenServiceImpl implements CodeGenService {
             try {
                 CodeGenerate failRecord = new CodeGenerate();
                 failRecord.setUserId(userId);
-                failRecord.setAppId(realAppId);
+                failRecord.setAppId(existingAppId != null ? existingAppId : CodeGenConstant.UNASSIGNED_APP_ID);
                 failRecord.setSessionId(sessionId);
                 failRecord.setPrompt(request.getPrompt());
                 failRecord.setModelName(realModel);

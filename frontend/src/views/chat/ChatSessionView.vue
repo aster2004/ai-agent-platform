@@ -249,6 +249,11 @@ const selectedMsgIds = ref(new Set<number>())
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
 
+function getSessionAppId(sessionId: number): number | undefined {
+  const sess = sessionList.value.find(s => s.id === sessionId)
+  return sess?.appId ?? undefined
+}
+
 /** 预览内容：优先取流式内容，其次取选中/最新 AI 消息所在的多文件批次 */
 const previewContent = computed(() => {
   // 流式生成中：累积的完整内容包含所有文件
@@ -432,7 +437,7 @@ async function handleSend({ content, mode, output, format }: { content: string; 
   generatingError.value = ''
   const params: ChatSaveReq = {
     sessionId: activeSessionId.value,
-    appId: null,
+    appId: getSessionAppId(activeSessionId.value) ?? null,
     messageType: 'user',
     content,
   }
@@ -616,9 +621,11 @@ async function stopGeneration() {
  * 快速生成模式：流式调用 /api/codegen/stream
  */
 async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML', signal?: AbortSignal) {
+  const appId = getSessionAppId(sessionId)
   const response = await generateCodeStream({
     prompt,
     sessionId,
+    ...(appId != null ? { appId } : {}),
     generateType: format,
   }, signal)
 
@@ -652,9 +659,11 @@ async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML
 async function runFastGenerateSync(sessionId: number, prompt: string, format = 'HTML') {
   streamingContent.value = '正在生成...'
 
+  const appId = getSessionAppId(sessionId)
   const res = await generateCode({
     prompt,
     sessionId,
+    ...(appId != null ? { appId } : {}),
     generateType: format,
   })
 
@@ -714,7 +723,12 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
   let cachedPrdContent = ''
   let cachedSummary = ''
 
-  const analyzeResponse = await analyzeWorkflowStream({ prompt, sessionId }, signal)
+  const appId = getSessionAppId(sessionId)
+  const analyzeResponse = await analyzeWorkflowStream({
+    prompt,
+    sessionId,
+    ...(appId != null ? { appId } : {}),
+  }, signal)
   await consumeWorkflowStream(analyzeResponse, (event) => {
     if (event.type === 'error') {
       throw new Error(event.message || '深度分析失败')

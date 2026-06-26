@@ -1,7 +1,9 @@
 package com.ai.agentplatform.module.codegen.workflow.service;
 
 import com.ai.agentplatform.common.util.SecurityUtils;
+import com.ai.agentplatform.module.codegen.constant.CodeGenConstant;
 import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
+import com.ai.agentplatform.module.codegen.support.CodeGenRequestContext;
 import com.ai.agentplatform.module.codegen.workflow.dto.ContinueWorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.UpdatePrdRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.WorkflowRequest;
@@ -150,8 +152,9 @@ public class CodeGenWorkflowService {
         long start = System.currentTimeMillis();
         CodeGenerate record = createRecord(request);
         List<WorkflowTaskVO> tasks = new ArrayList<>();
+        final String authorization = CodeGenRequestContext.captureAuthorization();
 
-        Thread.startVirtualThread(() -> {
+        Thread.startVirtualThread(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             try {
                 sendTask(emitter, tasks, "skill_call", "技能调用 deepresearch", "深度分析用户需求");
                 WorkflowState finalState = runGraph(analyzeGraph, initState(request.getPrompt()), step -> {
@@ -196,15 +199,16 @@ public class CodeGenWorkflowService {
             } catch (Exception e) {
                 handleStreamError(emitter, record, e);
             }
-        });
+        }));
         return emitter;
     }
 
     private SseEmitter runContinueStream(Long generateId, String fallbackPrd, String fallbackSummary) {
         SseEmitter emitter = new SseEmitter(600_000L);
         long start = System.currentTimeMillis();
+        final String authorization = CodeGenRequestContext.captureAuthorization();
 
-        Thread.startVirtualThread(() -> {
+        Thread.startVirtualThread(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             CodeGenerate record = null;
             try {
                 record = loadRecord(generateId);
@@ -234,7 +238,7 @@ public class CodeGenWorkflowService {
             } catch (Exception e) {
                 handleStreamError(emitter, record, e);
             }
-        });
+        }));
         return emitter;
     }
 
@@ -242,8 +246,9 @@ public class CodeGenWorkflowService {
         SseEmitter emitter = new SseEmitter(600_000L);
         long start = System.currentTimeMillis();
         CodeGenerate record = createRecord(request);
+        final String authorization = CodeGenRequestContext.captureAuthorization();
 
-        Thread.startVirtualThread(() -> {
+        Thread.startVirtualThread(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             try {
                 WorkflowState finalState = runGraph(graph, initState(request.getPrompt()), step -> sendStepEvent(emitter, step));
                 if (finalize) {
@@ -261,7 +266,7 @@ public class CodeGenWorkflowService {
             } catch (Exception e) {
                 handleStreamError(emitter, record, e);
             }
-        });
+        }));
         return emitter;
     }
 
@@ -323,7 +328,7 @@ public class CodeGenWorkflowService {
     private CodeGenerate createRecord(WorkflowRequest request) {
         CodeGenerate record = new CodeGenerate();
         record.setUserId(SecurityUtils.getCurrentUserId());
-        record.setAppId(request.getAppId() != null ? request.getAppId() : 1L);
+        record.setAppId(request.getAppId() != null ? request.getAppId() : CodeGenConstant.UNASSIGNED_APP_ID);
         record.setSessionId(request.getSessionId());
         record.setPrompt(request.getPrompt());
         record.setGenerateType("WORKFLOW");
@@ -360,7 +365,14 @@ public class CodeGenWorkflowService {
         recordPersistence.save(record);
 
         if (success && !files.isEmpty()) {
-            appSyncHelper.syncCodeFilesToApp(record.getAppId(), files);
+            Long appId = record.getAppId();
+            if (appId == null || appId <= 0) {
+                appId = appSyncHelper.resolveOrCreateApp(null, null, record.getPrompt());
+                record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
+            }
+            if (appId != null && appId > 0) {
+                appSyncHelper.syncCodeFilesToApp(appId, files);
+            }
         }
 
         return WorkflowResultVO.builder()

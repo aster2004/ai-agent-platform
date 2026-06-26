@@ -17,24 +17,17 @@
           :md="8"
           :lg="6"
         >
-          <a-card hoverable class="app-card">
+          <a-card hoverable class="app-card" @click="openAppDeploy(app)">
             <template #cover>
-              <div class="card-cover">
-                <img
-                  v-if="app.coverImg"
-                  :src="app.coverImg"
-                  :alt="app.appName"
-                  class="cover-img"
-                />
-                <div v-else class="cover-placeholder">
-                  <AppstoreOutlined />
-                </div>
-              </div>
+              <AppCardCover :cover-img="app.coverImg" :alt="app.appName" />
             </template>
             <a-card-meta :title="app.appName">
               <template #description>
                 <p class="card-desc">{{ app.description || '暂无描述' }}</p>
-                <p class="card-time">{{ formatTime(app.createTime) }}</p>
+                <p class="card-meta">
+                  <span class="card-creator">{{ resolveCreatorName(app) }}</span>
+                  <span class="card-time">{{ formatTime(app.createTime) }}</span>
+                </p>
               </template>
             </a-card-meta>
           </a-card>
@@ -46,17 +39,27 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { AppstoreOutlined } from '@ant-design/icons-vue'
+import AppCardCover from '@/components/app/AppCardCover.vue'
 import { getFeaturedApps } from '@/api/app'
 import type { AppVO } from '@/types/app'
 
+const router = useRouter()
 const loading = ref(false)
 const featuredList = ref<AppVO[]>([])
 
 function formatTime(time: string) {
   if (!time) return ''
   return time.replace('T', ' ').slice(0, 16)
+}
+
+function resolveCreatorName(app: AppVO) {
+  return app.creatorName?.trim() || `用户 #${app.userId}`
+}
+
+function openAppDeploy(app: AppVO) {
+  router.push(`/app/${app.id}/deploy`)
 }
 
 async function loadFeatured() {
@@ -98,27 +101,7 @@ onMounted(() => {
 
 .app-card {
   height: 100%;
-}
-
-.card-cover {
-  height: 160px;
-  overflow: hidden;
-  background: #f5f5f5;
-}
-
-.cover-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.cover-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-size: 48px;
-  color: #bfbfbf;
+  cursor: pointer;
 }
 
 .card-desc {
@@ -130,9 +113,25 @@ onMounted(() => {
   overflow: hidden;
 }
 
-.card-time {
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 0;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
+}
+
+.card-creator {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  flex-shrink: 0;
 }
 </style>
