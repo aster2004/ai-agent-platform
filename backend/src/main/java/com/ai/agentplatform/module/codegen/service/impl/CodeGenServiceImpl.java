@@ -8,6 +8,8 @@ import com.ai.agentplatform.module.codegen.service.CodeGenService;
 import com.ai.agentplatform.module.codegen.service.factory.LlmModelFactory;
 import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
 import com.ai.agentplatform.module.codegen.service.helper.ChatHistoryHelper;
+import com.ai.agentplatform.module.codegen.service.helper.ChatMemoryContext;
+import com.ai.agentplatform.module.codegen.service.helper.CodegenMemoryService;
 import com.ai.agentplatform.module.codegen.service.tool.PromptBuilder;
 import com.ai.agentplatform.module.codegen.service.tool.SseEmitterUtil;
 import com.ai.agentplatform.module.codegen.strategy.CodeGenStrategy;
@@ -53,6 +55,8 @@ public class CodeGenServiceImpl implements CodeGenService {
     @Resource
     private ChatHistoryHelper chatHelper;
     @Resource
+    private CodegenMemoryService codegenMemoryService;
+    @Resource
     private AppSyncHelper appSyncHelper;
     @Resource
     private SseEmitterUtil sseUtil;
@@ -81,8 +85,8 @@ public class CodeGenServiceImpl implements CodeGenService {
         }
 
         // 原有固定格式路径
-        List<String> history = chatHelper.loadChatHistory(sessionId);
-        String fullPrompt = promptBuilder.buildPrompt(request, history);
+        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+        String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
         List<ChatMessage> messageList = new ArrayList<>();
         messageList.add(UserMessage.from(fullPrompt));
@@ -111,6 +115,8 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setWorkflowStep("");
             mapper.insert(record);
             appSyncHelper.syncCodeToApp(realAppId, fullResult);
+            codegenMemoryService.rememberCodegenResultAsync(
+                    sessionId, request.getPrompt(), realGenerateType, fullResult);
 
             CodeGenVO vo = new CodeGenVO();
             vo.setId(record.getId());
@@ -141,7 +147,8 @@ public class CodeGenServiceImpl implements CodeGenService {
         long startTime = System.currentTimeMillis();
         try {
             ChatModel chatModel = modelFactory.getChatModel(realModel);
-            String fullPrompt = promptBuilder.buildPrompt(request, List.of());
+            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+            String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
             QuickGenSyncAgent agent = AiServices.builder(QuickGenSyncAgent.class)
                     .chatModel(chatModel)
@@ -167,6 +174,8 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setWorkflowStep("");
             mapper.insert(record);
             appSyncHelper.syncCodeToApp(realAppId, filesJson);
+            codegenMemoryService.rememberCodegenResultAsync(
+                    sessionId, request.getPrompt(), CodeGenConstant.GENERATE_TYPE_GENERAL, filesJson);
 
             CodeGenVO vo = new CodeGenVO();
             vo.setId(record.getId());
@@ -254,8 +263,8 @@ public class CodeGenServiceImpl implements CodeGenService {
                 }
 
                 // 原有固定格式流式路径
-                List<String> history = chatHelper.loadChatHistory(sessionId);
-                String fullPrompt = promptBuilder.buildPrompt(request, history);
+                ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+                String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
                 List<ChatMessage> messageList = new ArrayList<>();
                 messageList.add(UserMessage.from(fullPrompt));
@@ -297,6 +306,8 @@ public class CodeGenServiceImpl implements CodeGenService {
                             record.setWorkflowStep("BASIC_CODE_GEN");
                             mapper.insert(record);
                             appSyncHelper.syncCodeToApp(realAppId, totalText);
+                            codegenMemoryService.rememberCodegenResultAsync(
+                                    sessionId, request.getPrompt(), realGenerateType, totalText);
                             sseUtil.sendFinish(emitter, totalText);
                         } catch (Exception e) {
                             log.error("流式入库失败", e);
@@ -345,7 +356,8 @@ public class CodeGenServiceImpl implements CodeGenService {
 
         try {
             ChatModel chatModel = modelFactory.getChatModel(realModel);
-            String fullPrompt = promptBuilder.buildPrompt(request, List.of());
+            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+            String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
             long startTimestamp = System.currentTimeMillis();
 
             // 通知前端 AI 开始工作
@@ -386,6 +398,8 @@ public class CodeGenServiceImpl implements CodeGenService {
             record.setWorkflowStep("BASIC_CODE_GEN");
             mapper.insert(record);
             appSyncHelper.syncCodeToApp(realAppId, filesJson);
+            codegenMemoryService.rememberCodegenResultAsync(
+                    sessionId, request.getPrompt(), CodeGenConstant.GENERATE_TYPE_GENERAL, filesJson);
 
             sseUtil.sendFinish(emitter, filesJson);
             log.info("GENERAL 流式生成完成, 文件数={}, 耗时={}ms", files.size(), costMs);

@@ -28,6 +28,15 @@ public class ChatSession {
     @Column(name = "last_message_preview", length = 200)
     private String lastMessagePreview;
 
+    @Column(name = "memory_summary", columnDefinition = "TEXT")
+    private String memorySummary;
+
+    @Column(name = "summary_updated_at")
+    private LocalDateTime summaryUpdatedAt;
+
+    @Column(name = "summary_message_count", nullable = false)
+    private Integer summaryMessageCount = 0;
+
     @Column(name = "message_count", nullable = false)
     private Integer messageCount = 0;
 
