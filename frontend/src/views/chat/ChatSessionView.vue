@@ -184,6 +184,18 @@
         @resize-start="startResize"
         @toggle="togglePreview"
     />
+
+    <!-- 删除消息确认弹窗 -->
+    <div v-if="showDeleteMsgConfirm" class="modal-mask" @click.self="cancelDeleteMsgConfirm">
+      <div class="modal-box delete-msg-modal">
+        <h3 class="modal-title">确定删除消息？</h3>
+        <p class="modal-desc">已选 {{ selectedMsgIds.size }} 条消息，删除后将不可恢复。</p>
+        <div class="modal-btn-group">
+          <button class="btn-cancel" @click="cancelDeleteMsgConfirm">取消</button>
+          <button class="btn-delete" @click="confirmBatchDelete">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -245,6 +257,7 @@ const showScrollToBottom = ref(false)
 // ========== 多选删除 ==========
 const selectMode = ref(false)
 const selectedMsgIds = ref(new Set<number>())
+const showDeleteMsgConfirm = ref(false)
 
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
@@ -461,9 +474,44 @@ async function handleResend(content: string) {
   await triggerAiGenerate(content, lastMode.value, 'stream', lastFormat.value)
 }
 
-function handleRetryAi(_msg: ChatMessageType) {
-  if (!lastPrompt.value) return
-  handleResend(lastPrompt.value)
+/** 重新生成：找到该 AI 消息对应的原始用户指令，删除整批 AI 回复后重新生成 */
+async function handleRetryAi(aiMsg: ChatMessageType) {
+  if (generating.value) return
+
+  // 1. 向前查找该 AI 消息对应的用户消息（父指令）
+  const aiIndex = msgList.value.findIndex(m => m.id === aiMsg.id)
+  if (aiIndex < 0) return
+
+  let parentUserMsg: ChatMessageType | null = null
+  for (let i = aiIndex - 1; i >= 0; i--) {
+    if (msgList.value[i].messageType === 'user') {
+      parentUserMsg = msgList.value[i]
+      break
+    }
+  }
+  if (!parentUserMsg) return
+
+  // 2. 找到该用户消息之后的所有连续 AI 消息（属于同一批次）
+  const userIndex = msgList.value.findIndex(m => m.id === parentUserMsg!.id)
+  const batchAiMsgIds: number[] = []
+  for (let i = userIndex + 1; i < msgList.value.length; i++) {
+    if (msgList.value[i].messageType === 'ai') {
+      batchAiMsgIds.push(msgList.value[i].id)
+    } else {
+      break
+    }
+  }
+
+  // 3. 删除整批 AI 消息（后端 + 本地）
+  try {
+    await Promise.allSettled(batchAiMsgIds.map(id => deleteMessage(id)))
+  } catch { /* ignore */ }
+  msgList.value = msgList.value.filter(m => !batchAiMsgIds.includes(m.id))
+
+  // 4. 用原始用户指令重新生成
+  generatingError.value = ''
+  lastPrompt.value = parentUserMsg.content
+  await triggerAiGenerate(parentUserMsg.content, lastMode.value, 'stream', lastFormat.value)
 }
 
 // ========== AI 生成核心 ==========
@@ -859,12 +907,17 @@ function toggleMessageSelect(msgId: number) {
   selectedMsgIds.value = next
 }
 
-/** 批量删除已选消息 */
-async function batchDeleteMessages() {
+/** 批量删除已选消息 → 弹出确认框 */
+function batchDeleteMessages() {
+  if (selectedMsgIds.value.size === 0) return
+  showDeleteMsgConfirm.value = true
+}
+
+/** 确认删除 */
+async function confirmBatchDelete() {
   if (selectedMsgIds.value.size === 0) return
 
   const ids = Array.from(selectedMsgIds.value)
-
   try {
     const results = await Promise.allSettled(ids.map(id => deleteMessage(id)))
     const failed = results.filter(r => r.status === 'rejected').length
@@ -879,7 +932,13 @@ async function batchDeleteMessages() {
   } catch {
     message.error('删除失败')
   }
+  showDeleteMsgConfirm.value = false
   cancelSelectMode()
+}
+
+/** 取消删除确认 */
+function cancelDeleteMsgConfirm() {
+  showDeleteMsgConfirm.value = false
 }
 
 function cancelSelectMode() {
@@ -1277,4 +1336,51 @@ function cancelSelectMode() {
   transform: translateY(10px);
 }
 
+/* ====== 删除确认弹窗 ====== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+}
+.delete-msg-modal {
+  width: 360px;
+  text-align: center;
+}
+.modal-title {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.modal-desc {
+  color: #666;
+  margin: 0 0 24px;
+}
+.modal-btn-group {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn-cancel {
+  padding: 8px 24px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.btn-delete {
+  padding: 8px 24px;
+  background-color: #f5222d;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
 </style>
