@@ -23,8 +23,18 @@
       </div>
     </div>
 
-    <div class="code-body-wrap" :class="{ collapsed: isCollapsed }">
+    <div ref="codeBodyWrapRef" class="code-body-wrap" :class="{ collapsed: isCollapsed }" @scroll="onScroll">
       <pre class="code-body"><code v-html="highlightedCode" /></pre>
+    </div>
+
+    <!-- 横向滚动按钮 -->
+    <div class="h-scroll-bar">
+      <button class="h-scroll-btn" :disabled="!canScrollLeft" @click="scrollLeft">
+        <LeftOutlined />
+      </button>
+      <button class="h-scroll-btn" :disabled="!canScrollRight" @click="scrollRight">
+        <RightOutlined />
+      </button>
     </div>
 
     <button class="collapse-btn" @click="isCollapsed = !isCollapsed">
@@ -34,9 +44,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { CopyOutlined, DownloadOutlined, PlayCircleOutlined, DownOutlined } from '@ant-design/icons-vue'
+import { CopyOutlined, DownloadOutlined, PlayCircleOutlined, DownOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { highlightCode } from '@/utils/syntaxHighlight'
 import type { CodeFile } from '@/types/codegen'
 
@@ -54,10 +64,45 @@ const emit = defineEmits<{
 
 const isCollapsed = ref(false)
 const running = ref(false)
+const codeBodyWrapRef = ref<HTMLElement | null>(null)
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+const showHScroll = ref(false)
 
 const label = props.filename || props.lang || 'code'
 
 const highlightedCode = computed(() => highlightCode(props.content, props.lang || 'text'))
+
+// ---- 横向滚动 ----
+
+function updateScrollState() {
+  const el = codeBodyWrapRef.value
+  if (!el) return
+  const needsScroll = el.scrollWidth > el.clientWidth + 1
+  showHScroll.value = needsScroll
+  canScrollLeft.value = el.scrollLeft > 0
+  canScrollRight.value = el.scrollLeft < el.scrollWidth - el.clientWidth - 1
+}
+
+function onScroll() {
+  updateScrollState()
+}
+
+function scrollLeft() {
+  codeBodyWrapRef.value?.scrollBy({ left: -200, behavior: 'smooth' })
+}
+
+function scrollRight() {
+  codeBodyWrapRef.value?.scrollBy({ left: 200, behavior: 'smooth' })
+}
+
+onMounted(() => {
+  nextTick(() => updateScrollState())
+})
+
+watch(() => props.content, () => {
+  nextTick(() => updateScrollState())
+})
 
 function collectFiles(): CodeFile[] {
   if (props.allFiles?.length) return props.allFiles
@@ -185,7 +230,8 @@ async function handleRun() {
 /* 代码主体 */
 .code-body-wrap {
   max-height: 420px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   transition: max-height 0.25s ease;
 }
 
@@ -209,8 +255,7 @@ async function handleRun() {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
   color: #e1e1ee;
   tab-size: 2;
   -moz-tab-size: 2;
@@ -225,6 +270,42 @@ async function handleRun() {
 .code-body :deep(.tk-bool)    { color: #ff5370; }
 .code-body :deep(.tk-fn)      { color: #82aaff; }
 .code-body :deep(.tk-prop)    { color: #80cbc4; }
+
+/* 横向滚动按钮栏 */
+.h-scroll-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: #252536;
+  border-top: 1px solid #2a2a3d;
+}
+
+.h-scroll-btn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: #676e95;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  transition: all 0.15s;
+}
+
+.h-scroll-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c8c8d8;
+}
+
+.h-scroll-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
 
 /* 折叠按钮 */
 .collapse-btn {

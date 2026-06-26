@@ -22,12 +22,18 @@
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
             </button>
-            <button class="icon-btn" title="在新窗口打开" @click="openInNewWindow">
+            <button v-if="showPreviewBtn" class="icon-btn preview-btn" :title="previewBtnLabel" @click="handlePreviewClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+              </svg>
+              <span>{{ previewBtnLabel }}</span>
+            </button>
+            <button v-if="showPreviewBtn" class="icon-btn" title="引用" @click="handleQuoteClick">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 1l4 0l0 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4 0l0-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
               </svg>
             </button>
-            <button class="icon-btn" title="全屏预览" @click="openInNewWindow">
+            <button v-if="showPreviewBtn" class="icon-btn" title="放大查看" @click="handleEnlargeClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
               </svg>
@@ -37,9 +43,23 @@
       </div>
 
       <!-- 白色代码区 -->
-      <div class="card-code-body" :class="{ streaming: isStreaming }">
+      <div ref="cardCodeBodyRef" class="card-code-body" :class="{ streaming: isStreaming }" @scroll="onCardScroll">
         <pre class="card-code"><code v-html="isStreaming ? streamHighlighted : completedHighlightedCode" /></pre>
         <span v-if="isStreaming" class="stream-cursor-light">|</span>
+      </div>
+
+      <!-- 横向滚动按钮 -->
+      <div v-if="!isStreaming" class="card-h-scroll-bar">
+        <button class="card-h-scroll-btn" :disabled="!cardCanScrollLeft" @click="cardScrollLeft">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+        <button class="card-h-scroll-btn" :disabled="!cardCanScrollRight" @click="cardScrollRight">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -100,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted, nextTick, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { parseMarkdown, normalizeAiContent } from '@/utils/streamMarkdown'
 import type { MarkdownSegment } from '@/utils/streamMarkdown'
@@ -117,7 +137,46 @@ const props = defineProps<{
 const emit = defineEmits<{
   retry: []
   delete: []
+  preview: []
+  quote: [code: string]
+  enlarge: [code: string]
 }>()
+
+// ---- 横向滚动 ----
+
+const cardCodeBodyRef = ref<HTMLElement | null>(null)
+const cardCanScrollLeft = ref(false)
+const cardCanScrollRight = ref(false)
+const showCardHScroll = ref(false)
+
+function updateCardScrollState() {
+  const el = cardCodeBodyRef.value
+  if (!el) return
+  const needsScroll = el.scrollWidth > el.clientWidth + 1
+  showCardHScroll.value = needsScroll
+  cardCanScrollLeft.value = el.scrollLeft > 0
+  cardCanScrollRight.value = el.scrollLeft < el.scrollWidth - el.clientWidth - 1
+}
+
+function onCardScroll() {
+  updateCardScrollState()
+}
+
+function cardScrollLeft() {
+  cardCodeBodyRef.value?.scrollBy({ left: -200, behavior: 'smooth' })
+}
+
+function cardScrollRight() {
+  cardCodeBodyRef.value?.scrollBy({ left: 200, behavior: 'smooth' })
+}
+
+onMounted(() => {
+  nextTick(() => updateCardScrollState())
+})
+
+watch(() => props.content, () => {
+  nextTick(() => updateCardScrollState())
+})
 
 // ---- 代码检测 ----
 
@@ -274,6 +333,47 @@ function handleDelete() {
   emit('delete')
 }
 
+// ---- 预览按钮 ----
+
+const showPreviewBtn = computed(() => {
+  if (!props.content || props.isStreaming) return false
+  const code = codeText.value
+  if (!code) return false
+  // HTML / Vue 代码可预览
+  if (/^<(!DOCTYPE|html|template)/i.test(code.trim())) return true
+  // 含代码块标记的内容
+  if (props.content.includes('```html') || props.content.includes('```vue')) return true
+  // 多文件格式
+  if (code.trim().startsWith('[') && code.includes('"path"')) return true
+  if (/^##\s+📁/.test(code)) return true
+  return false
+})
+
+const previewBtnLabel = computed(() => {
+  const code = codeText.value.trim()
+  // HTML 可运行
+  if (/^<(!DOCTYPE|html)/i.test(code)) return '运行'
+  if (/^```html|```\s*\n\s*<(!DOCTYPE|html)/im.test(props.content)) return '运行'
+  return '预览'
+})
+
+function handlePreviewClick() {
+  emit('preview')
+}
+
+function handleQuoteClick() {
+  const code = codeText.value
+  if (!code) return
+  emit('quote', code)
+  message.success('已引用到输入框')
+}
+
+function handleEnlargeClick() {
+  const code = codeText.value
+  if (!code) return
+  emit('enlarge', code)
+}
+
 function handleCopyToClipboard() {
   const code = codeText.value
   if (!code) return
@@ -385,12 +485,27 @@ function openInNewWindow() {
   color: #444;
 }
 
+.preview-btn {
+  color: #1677ff;
+  gap: 3px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  width: auto;
+}
+
+.preview-btn:hover {
+  background: #e8f0ff;
+  color: #1677ff;
+}
+
 /* 白色代码区 */
 .card-code-body {
   background: #ffffff;
-  margin: 0 8px 8px;
+  margin: 0 8px 0;
   border-radius: 8px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   max-height: 480px;
 }
 
@@ -406,8 +521,7 @@ function openInNewWindow() {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', monospace;
   font-size: 13px;
   line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
   color: #1a1a2e;
   tab-size: 2;
 }
@@ -421,6 +535,42 @@ function openInNewWindow() {
 .card-code :deep(.tk-num)     { color: #d97706; }
 .card-code :deep(.tk-bool)    { color: #dc2626; }
 .card-code :deep(.tk-prop)    { color: #0891b2; }
+
+/* ====== 横向滚动按钮栏（浅色主题） ====== */
+.card-h-scroll-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 10px;
+  margin: 0 8px 8px;
+  border-top: 1px solid #e8eaed;
+}
+
+.card-h-scroll-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #e0e3e8;
+  background: #fff;
+  color: #888;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.card-h-scroll-btn:hover:not(:disabled) {
+  background: #f5f7fa;
+  border-color: #d0d3d7;
+  color: #444;
+}
+
+.card-h-scroll-btn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
 
 /* ====== 流式徽章（浅色主题） ====== */
 .streaming-badge-light {
@@ -539,7 +689,7 @@ function openInNewWindow() {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
   font-size: 0.88em;
   color: #d63384;
-  word-break: break-word;
+  overflow-x: auto;
 }
 
 .md-text :deep(strong) { font-weight: 600; color: #1a1a2e; }

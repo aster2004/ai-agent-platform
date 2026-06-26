@@ -77,15 +77,15 @@
               <div
                   v-else
                   class="ai-msg-selectable msg-body"
-                  :class="{ 'preview-active': activePreviewMsgId === msg.id || (activePreviewMsgId == null && isLastAiMsg(msg.id)) }"
-                  @click="!selectMode && selectPreview(msg.id)"
-                  title="点击在右侧预览面板查看此代码"
               >
                 <AiStreamMessage
                     :content="msg.content"
                     :is-streaming="false"
                     @retry="handleRetryAi(msg)"
                     @delete="handleDeleteMessage(msg.id)"
+                    @preview="handleAiPreview(msg.id)"
+                    @quote="handleQuoteCode"
+                    @enlarge="handleEnlargeCode"
                 />
               </div>
             </div>
@@ -157,6 +157,26 @@
           </button>
         </div>
 
+        <!-- 引用代码卡片（在输入框上方） -->
+        <div v-if="quotedCode" class="quote-card">
+          <div class="quote-card-body">
+            <div class="quote-card-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 1l4 0l0 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4 0l0-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              </svg>
+            </div>
+            <div class="quote-card-content">
+              <div class="quote-card-label">{{ quotedCodeLabel }}</div>
+              <div class="quote-card-preview">{{ quotedCodePreview }}</div>
+            </div>
+            <button class="quote-card-close" @click="quotedCode = ''" title="取消引用">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <!-- 底部输入 -->
         <div class="input-wrap">
           <ChatInput ref="chatInputRef" compact @send="handleSend" :is-home="false" />
@@ -184,6 +204,30 @@
         @resize-start="startResize"
         @toggle="togglePreview"
     />
+
+    <!-- 放大查看代码全屏弹窗 -->
+    <div v-if="showEnlarge" class="enlarge-mask" @click.self="showEnlarge = false">
+      <div class="enlarge-box">
+        <div class="enlarge-header">
+          <span class="enlarge-title">代码查看</span>
+          <div class="enlarge-actions">
+            <button class="enlarge-btn" title="复制" @click="handleEnlargeCopy">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+            </button>
+            <button class="enlarge-btn" title="关闭" @click="showEnlarge = false">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="enlarge-body">
+          <pre class="enlarge-code"><code v-html="enlargeHighlightedCode" /></pre>
+        </div>
+      </div>
+    </div>
 
     <!-- 删除消息确认弹窗 -->
     <div v-if="showDeleteMsgConfirm" class="modal-mask" @click.self="cancelDeleteMsgConfirm">
@@ -215,6 +259,7 @@ import { generateCodeStream, analyzeWorkflowStream, continueWorkflowStream, gene
 import { readSseStream } from '@/utils/codegenStream'
 import { splitAiContent } from '@/utils/splitMultiFile'
 import { formatCodeFilesToContent, formatPrdSummary } from '@/utils/formatCodeFiles'
+import { highlightCode } from '@/utils/syntaxHighlight'
 import { useColumnResize } from '@/composables/useColumnResize'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
 import type { CodeFile, WorkflowResult, WorkflowStepEvent, WorkflowTask } from '@/types/codegen'
@@ -266,6 +311,39 @@ const showDeleteMsgConfirm = ref(false)
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
 
+/** 放大查看全屏弹窗 */
+const showEnlarge = ref(false)
+const enlargeCode = ref('')
+const enlargeHighlightedCode = computed(() => {
+  const code = enlargeCode.value
+  if (!code) return ''
+  // 简易语言检测
+  let lang = 'text'
+  if (/^<(!DOCTYPE|html)/i.test(code)) lang = 'html'
+  else if (/^<template/i.test(code)) lang = 'vue'
+  else if (/^(import|export|const|let|var|function|class|interface|type)\s/.test(code)) lang = 'typescript'
+  return highlightCode(code, lang)
+})
+
+/** 引用代码卡片 */
+const quotedCode = ref('')
+const quotedCodeLabel = computed(() => {
+  const code = quotedCode.value.trim()
+  if (!code) return '引用代码'
+  if (/^<(!DOCTYPE|html)/i.test(code)) return '引用 HTML'
+  if (/^<template/i.test(code)) return '引用 Vue'
+  if (/^##\s+📁/.test(code)) return '引用文件'
+  if (/^(import|export|const|let|var|function|class|interface|type)\s/m.test(code)) return '引用 TypeScript'
+  return '引用代码'
+})
+const quotedCodePreview = computed(() => {
+  const code = quotedCode.value.trim()
+  if (!code) return ''
+  // 取前 3 行作为预览
+  const lines = code.split('\n').filter(l => l.trim())
+  return lines.slice(0, 3).join('\n') + (lines.length > 3 ? '…' : '')
+})
+
 /** 预览内容：优先取流式内容，其次取选中/最新 AI 消息所在的多文件批次 */
 const previewContent = computed(() => {
   // 流式生成中：累积的完整内容包含所有文件
@@ -315,19 +393,6 @@ function collectLatestAiBatch(): string | null {
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
-/** 是否有可预览的内容（含 HTML/Vue/多文件代码块） */
-const hasPreviewContent = computed(() => {
-  const c = previewContent.value
-  if (!c) return false
-  // HTML/Vue 代码块
-  if (/```(html|vue)```|```\s*\n[^`]*<|<!DOCTYPE|<html|<template/i.test(c)) return true
-  // 多文件 ## 📁 格式（拆分后的消息批次）
-  if (/##\s+📁/.test(c)) return true
-  // 多文件 JSON 数组
-  if (c.trim().startsWith('[') && c.includes('"path"') && c.includes('"content"')) return true
-  return false
-})
-
 // ========== 初始化 ==========
 onMounted(async () => {
   // 加载会话列表
@@ -358,10 +423,7 @@ onMounted(async () => {
     // 清除 URL 中的 query 参数（保留干净路径）
     router.replace({ path: `/chat/session/${idParam}` })
 
-    // 检查历史消息中是否有 HTML 可预览
-    if (hasPreviewContent.value) {
-      previewVisible.value = true
-    }
+    // 预览由用户点击 AI 消息中的预览按钮手动触发
   }
 })
 
@@ -446,6 +508,13 @@ async function handleRenameSession(sessionId: number, title: string) {
 async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: GenerateFormat }) {
   if (!activeSessionId.value || generating.value) return
 
+  // 如果有引用代码，拼接到消息内容前
+  const quote = quotedCode.value.trim()
+  if (quote) {
+    content = `参考以下代码：\n\`\`\`\n${quote}\n\`\`\`\n\n${content}`
+    quotedCode.value = ''
+  }
+
   // 1. 保存用户消息
   generatingError.value = ''
   const params: ChatSaveReq = {
@@ -520,19 +589,39 @@ async function handleRetryAi(aiMsg: ChatMessageType) {
 }
 
 // ========== AI 生成核心 ==========
-/** 判断是否为最后一条 AI 消息（默认预览目标） */
-function isLastAiMsg(msgId: number): boolean {
-  for (let i = msgList.value.length - 1; i >= 0; i--) {
-    if (msgList.value[i].messageType === 'ai') {
-      return msgList.value[i].id === msgId
-    }
-  }
-  return false
+/** 点击AI消息中的预览按钮 → 打开右侧预览面板 */
+function handleAiPreview(msgId: number) {
+  activePreviewMsgId.value = msgId
+  previewVisible.value = true
+  collapsedPreview.value = false
 }
 
-/** 手动选择某条 AI 消息显示在预览面板 */
-function selectPreview(msgId: number) {
-  activePreviewMsgId.value = msgId
+/** 引用代码 → 显示在输入框上方卡片 */
+function handleQuoteCode(code: string) {
+  if (!code) return
+  quotedCode.value = code
+  // 滚动到输入框
+  nextTick(() => {
+    const inputWrap = document.querySelector('.input-wrap')
+    inputWrap?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  })
+}
+
+/** 放大查看代码 */
+function handleEnlargeCode(code: string) {
+  if (!code) return
+  enlargeCode.value = code
+  showEnlarge.value = true
+}
+
+/** 放大查看弹窗中复制代码 */
+async function handleEnlargeCopy() {
+  try {
+    await navigator.clipboard.writeText(enlargeCode.value)
+    message.success('已复制到剪贴板')
+  } catch {
+    message.error('复制失败')
+  }
 }
 
 async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML') {
@@ -562,10 +651,7 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
       } else {
         await runFastGenerate(activeSessionId.value, prompt, format, controller.signal)
       }
-      // 生成完成后自动弹出预览（如果有 HTML 内容）
-      if (hasPreviewContent.value) {
-        previewVisible.value = true
-      }
+      // 预览由用户点击 AI 消息中的预览按钮手动触发
     }
   } catch (e: any) {
     // 用户主动停止 → 不是错误，静默处理
@@ -632,13 +718,6 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-// 自动打开预览（检测到 HTML 内容时）
-watch(hasPreviewContent, (val) => {
-  if (val && !previewVisible.value && !collapsedPreview.value) {
-    previewVisible.value = true
-  }
-})
-
 /** 用户点击停止按钮 */
 async function stopGeneration() {
   const controller = abortController.value
@@ -656,10 +735,6 @@ async function stopGeneration() {
     try {
       await saveAiMessage(sessionId, null, partialContent)
       await loadMessages(sessionId)
-      // 停止后也检查是否有可预览内容
-      if (hasPreviewContent.value) {
-        previewVisible.value = true
-      }
     } catch { /* ignore */ }
   }
 }
@@ -1078,37 +1153,11 @@ function cancelSelectMode() {
   border-radius: 2px;
 }
 
-/* ====== AI 消息可点击切换预览 ====== */
+/* ====== AI 消息容器 ====== */
 .ai-msg-selectable {
-  cursor: pointer;
   border-radius: 10px;
   padding: 2px 6px;
   margin: 0 -6px;
-  transition: background 0.15s;
-  position: relative;
-}
-
-.ai-msg-selectable:hover {
-  background: #f5f7fb;
-}
-
-.ai-msg-selectable.preview-active {
-  background: #eef3ff;
-  box-shadow: inset 3px 0 0 #1677ff;
-}
-
-/* 选中指示小圆点 */
-.ai-msg-selectable.preview-active::before {
-  content: '';
-  position: absolute;
-  left: -2px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #1677ff;
-  opacity: 0;
 }
 
 .loading-tip {
@@ -1162,6 +1211,75 @@ function cancelSelectMode() {
 
 .stop-btn svg {
   color: #ef4444;
+}
+
+/* ====== 引用代码卡片（输入框上方） ====== */
+.quote-card {
+  padding: 0 24px;
+  max-width: 860px;
+  width: 100%;
+  margin: 0 auto 8px;
+  box-sizing: border-box;
+}
+
+.quote-card-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f7f8fb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  border-left: 3px solid #1677ff;
+}
+
+.quote-card-icon {
+  color: #1677ff;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.quote-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.quote-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1677ff;
+  margin-bottom: 2px;
+}
+
+.quote-card-preview {
+  font-size: 12px;
+  color: #888;
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.quote-card-close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  transition: all 0.15s;
+}
+
+.quote-card-close:hover {
+  background: #e5e7eb;
+  color: #666;
 }
 
 /* 底部输入 */
@@ -1337,6 +1455,107 @@ function cancelSelectMode() {
   opacity: 0;
   transform: translateY(10px);
 }
+
+/* ====== 放大查看代码全屏弹窗 ====== */
+.enlarge-mask {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 40px;
+  box-sizing: border-box;
+}
+
+.enlarge-box {
+  width: 100%;
+  max-width: 1200px;
+  height: 100%;
+  max-height: 90vh;
+  background: #1e1e2e;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.enlarge-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #252536;
+  border-bottom: 1px solid #2a2a3d;
+  flex-shrink: 0;
+}
+
+.enlarge-title {
+  font-size: 13px;
+  color: #8b8b9e;
+  font-weight: 500;
+}
+
+.enlarge-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.enlarge-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #8b8b9e;
+  transition: all 0.15s;
+}
+
+.enlarge-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #c8c8d8;
+}
+
+.enlarge-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+.enlarge-body::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.enlarge-body::-webkit-scrollbar-thumb {
+  background: #3a3a55;
+  border-radius: 3px;
+}
+
+.enlarge-code {
+  margin: 0;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre;
+  color: #e1e1ee;
+  tab-size: 2;
+}
+
+.enlarge-code :deep(.tk-keyword) { color: #c792ea; font-style: italic; }
+.enlarge-code :deep(.tk-string)  { color: #c3e88d; }
+.enlarge-code :deep(.tk-comment) { color: #676e95; font-style: italic; }
+.enlarge-code :deep(.tk-tag)     { color: #82aaff; }
+.enlarge-code :deep(.tk-num)     { color: #f78c6c; }
+.enlarge-code :deep(.tk-bool)    { color: #ff5370; }
+.enlarge-code :deep(.tk-fn)      { color: #82aaff; }
+.enlarge-code :deep(.tk-prop)    { color: #80cbc4; }
 
 /* ====== 删除确认弹窗 ====== */
 .modal-mask {
