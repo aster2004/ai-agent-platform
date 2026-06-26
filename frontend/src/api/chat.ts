@@ -58,6 +58,20 @@ export function saveAiMessage(
 }
 
 /**
+ * PUT /api/chat/session/{id}
+ */
+export function renameSession(sessionId: number, title: string): Promise<ApiResult<null>> {
+  return request.put<any, ApiResult<null>>(`/api/chat/session/${sessionId}`, { title })
+}
+
+/**
+ * DELETE /api/chat/message/{id}
+ */
+export function deleteMessage(messageId: number): Promise<ApiResult<null>> {
+  return request.delete<any, ApiResult<null>>(`/api/chat/message/${messageId}`)
+}
+
+/**
  * DELETE /api/chat/session/{id}
  */
 export function deleteSession(sessionId: number): Promise<ApiResult<null>> {

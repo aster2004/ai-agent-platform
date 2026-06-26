@@ -97,6 +97,25 @@ public class ChatService {
     }
 
     @Transactional
+    public void deleteMessage(Long messageId, Long userId) {
+        ChatMessage msg = chatMessageRepository.findById(messageId)
+                .orElseThrow(() -> new BusinessException("消息不存在"));
+        ChatSession session = getOwnedSession(msg.getSessionId(), userId);
+        msg.setIsDeleted(1);
+        chatMessageRepository.save(msg);
+    }
+
+    @Transactional
+    public void renameSession(Long sessionId, String title, Long userId) {
+        if (title == null || title.isBlank()) {
+            throw new BusinessException("标题不能为空");
+        }
+        ChatSession session = getOwnedSession(sessionId, userId);
+        session.setSessionTitle(title.trim());
+        chatSessionRepository.save(session);
+    }
+
+    @Transactional
     public void deleteSession(Long sessionId, Long userId) {
         ChatSession session = getOwnedSession(sessionId, userId);
         chatSessionRepository.delete(session);

@@ -43,11 +43,22 @@ public class SseEmitterUtil {
     }
 
     /**
-     * 推送生成完成标识
+     * 推送生成完成标识，附带策略清洗后的最终文本（前端用此替换流式拼接的原始 token 流）
      */
-    public void sendFinish(SseEmitter emitter) throws IOException {
-        emitter.send(SseEmitter.event().name(CodeGenConstant.SSE_EVENT_FINISH).data("代码生成完成"));
+    public void sendFinish(SseEmitter emitter, String finalText) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name(CodeGenConstant.SSE_EVENT_FINISH)
+                .data(finalText != null ? finalText : ""));
         emitter.complete();
+    }
+
+    /**
+     * 推送文件创建通知（仅 GENERAL 模式，AI 通过 createFile 工具创建文件时触发）
+     */
+    public void sendFileCreated(SseEmitter emitter, String filePath) throws IOException {
+        emitter.send(SseEmitter.event()
+                .name(CodeGenConstant.SSE_EVENT_FILE_CREATED)
+                .data(filePath));
     }
 
     /**

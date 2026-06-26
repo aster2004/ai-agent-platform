@@ -41,19 +41,20 @@ public class ParamFillUtil {
     }
 
     /**
-     * 填充生成类型：入参为空或非法值，默认返回 HTML 单文件
+     * 填充生成类型：入参为空或非法值，默认返回 GENERAL（通用模式，AI 自主决定）
      */
     public String fillGenerateType(String generateType) {
         if (generateType == null || generateType.isBlank()) {
-            return CodeGenConstant.GENERATE_TYPE_HTML;
+            return CodeGenConstant.GENERATE_TYPE_GENERAL;
         }
-        // 仅允许四种合法类型，非法值兜底 HTML
+        // 五种合法类型，非法值兜底 GENERAL
         return switch (generateType.toUpperCase()) {
             case CodeGenConstant.GENERATE_TYPE_HTML,
                  CodeGenConstant.GENERATE_TYPE_VUE,
                  CodeGenConstant.GENERATE_TYPE_MULTI_FILE,
-                 CodeGenConstant.GENERATE_TYPE_WORKFLOW -> generateType.toUpperCase();
-            default -> CodeGenConstant.GENERATE_TYPE_HTML;
+                 CodeGenConstant.GENERATE_TYPE_WORKFLOW,
+                 CodeGenConstant.GENERATE_TYPE_GENERAL -> generateType.toUpperCase();
+            default -> CodeGenConstant.GENERATE_TYPE_GENERAL;
         };
     }
 }

@@ -1,5 +1,4 @@
 <template>
-  <!-- 不再根据isHome切换样式，统一使用卡片布局 -->
   <div class="input-area home-input" :class="{ compact }">
     <textarea
         v-model="text"
@@ -7,7 +6,7 @@
         :placeholder="isHome ? '输入你的需求，直接开始对话...' : '说说你的想法...'"
     ></textarea>
 
-    <!-- 内置圆形箭头发送按钮 -->
+    <!-- 圆形发送按钮 -->
     <button class="send-btn-inner" :class="{ active: text.trim() }" @click="handleSend">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -15,7 +14,7 @@
       </svg>
     </button>
 
-    <!-- 底部模式选择按钮栏 -->
+    <!-- 底部模式选择按钮 -->
     <div class="mode-buttons">
       <button
           class="mode-btn"
@@ -31,30 +30,75 @@
       >
         深度分析
       </button>
-      <template v-if="runMode === 'fast'">
-        <span class="mode-divider" />
-        <button
-            class="mode-btn"
-            :class="{ active: outputMode === 'stream' }"
-            @click="outputMode = 'stream'"
+
+      <!-- 输出格式切换 -->
+      <div class="output-trigger" @click="toggleFormatMenu" ref="formatTriggerRef">
+        <span class="output-current">{{ displayFormatType }}</span>
+        <svg
+            class="output-chevron"
+            :class="{ open: formatMenuOpen }"
+            width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
         >
-          流式输出
-        </button>
-        <button
-            class="mode-btn"
-            :class="{ active: outputMode === 'sync' }"
-            @click="outputMode = 'sync'"
+          <polyline points="1 5 5 1 9 5" />
+        </svg>
+
+        <!-- 弹出菜单（向上展开） -->
+        <Transition name="fade">
+          <div v-if="formatMenuOpen" class="output-menu" @click.stop>
+            <div
+                v-for="opt in formatOptions"
+                :key="opt.value"
+                class="output-option"
+                :class="{ active: formatType === opt.value }"
+                @click="selectFormat(opt.value)"
+            >
+              <span>{{ opt.label }}</span>
+              <span class="opt-desc">{{ opt.desc }}</span>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
+      <!-- 输出方式切换 -->
+      <div class="output-trigger" @click="toggleOutputMenu" ref="outputTriggerRef">
+        <span class="output-current">{{ outputMode === 'stream' ? '流式' : '同步' }}</span>
+        <svg
+            class="output-chevron"
+            :class="{ open: outputMenuOpen }"
+            width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
         >
-          同步输出
-        </button>
-      </template>
+          <polyline points="1 5 5 1 9 5" />
+        </svg>
+
+        <!-- 弹出菜单（向上展开） -->
+        <Transition name="fade">
+          <div v-if="outputMenuOpen" class="output-menu" @click.stop>
+            <div
+                class="output-option"
+                :class="{ active: outputMode === 'stream' }"
+                @click="selectOutput('stream')"
+            >
+              <span>流式输出</span>
+              <span class="opt-desc">逐字实时显示</span>
+            </div>
+            <div
+                class="output-option"
+                :class="{ active: outputMode === 'sync' }"
+                @click="selectOutput('sync')"
+            >
+              <span>同步输出</span>
+              <span class="opt-desc">完整一次性返回</span>
+            </div>
+          </div>
+        </Transition>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { GenerationOutput } from '@/types/codegen'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { formatGenerateTypeLabel } from '@/utils/formatCode'
 
 const props = defineProps({
   isHome: {
@@ -67,29 +111,70 @@ const props = defineProps({
   },
 })
 
-const { isHome, compact } = props
-
 const text = ref('')
 const runMode = ref<'fast' | 'deep'>('fast')
-const outputMode = ref<GenerationOutput>('stream')
+const outputMode = ref<'stream' | 'sync'>('stream')
+const outputMenuOpen = ref(false)
+const outputTriggerRef = ref<HTMLElement | null>(null)
+const formatType = ref('HTML')
+const formatMenuOpen = ref(false)
+const formatTriggerRef = ref<HTMLElement | null>(null)
+const formatOptions = [
+  { value: 'HTML', label: 'HTML', desc: '单页HTML应用' },
+  { value: 'VUE', label: 'Vue', desc: 'Vue 3 工程项目' },
+  { value: 'MULTI_FILE', label: '多文件', desc: 'HTML多文件项目' },
+  { value: 'GENERAL', label: '通用', desc: 'AI 自动选择格式' },
+]
+const displayFormatType = computed(() => formatGenerateTypeLabel(formatType.value))
 const emit = defineEmits(['send'])
 
 function selectDeepMode() {
   runMode.value = 'deep'
 }
 
-function resolveOutput(): GenerationOutput {
-  return runMode.value === 'deep' ? 'stream' : outputMode.value
+function toggleOutputMenu() {
+  outputMenuOpen.value = !outputMenuOpen.value
+  if (outputMenuOpen.value) formatMenuOpen.value = false
 }
+
+function selectOutput(mode: 'stream' | 'sync') {
+  outputMode.value = mode
+  outputMenuOpen.value = false
+}
+
+function toggleFormatMenu() {
+  formatMenuOpen.value = !formatMenuOpen.value
+  if (formatMenuOpen.value) outputMenuOpen.value = false
+}
+
+function selectFormat(type: string) {
+  formatType.value = type
+  formatMenuOpen.value = false
+}
+
+function handleClickOutside(e: MouseEvent) {
+  if (outputTriggerRef.value && !outputTriggerRef.value.contains(e.target as Node)) {
+    outputMenuOpen.value = false
+  }
+  if (formatTriggerRef.value && !formatTriggerRef.value.contains(e.target as Node)) {
+    formatMenuOpen.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', handleClickOutside))
+onUnmounted(() => document.removeEventListener('click', handleClickOutside))
 
 const handleSend = (e?: Event) => {
   if (e) e.preventDefault()
   const val = text.value.trim()
   if (!val) return
+  // 「通用」模式前端映射为 MULTI_FILE — 约束最少，AI 可自由输出任意文件组合
+  const actualFormat = formatType.value === 'GENERAL' ? 'MULTI_FILE' : formatType.value
   emit('send', {
     content: val,
     mode: runMode.value,
-    output: resolveOutput(),
+    output: outputMode.value,
+    format: actualFormat,
   })
   text.value = ''
 }
@@ -107,14 +192,17 @@ function getMode() {
 }
 
 function getOutput() {
-  return resolveOutput()
+  return outputMode.value
 }
 
-defineExpose({ setText, setMode, getMode, getOutput })
+function getFormat() {
+  return formatType.value
+}
+
+defineExpose({ setText, setMode, getMode, getOutput, getFormat })
 </script>
 
 <style scoped>
-/* 全局统一使用首页卡片样式，删除底部窄输入框样式 */
 .input-area {
   width: 720px;
   max-width: 100%;
@@ -161,6 +249,17 @@ defineExpose({ setText, setMode, getMode, getOutput })
   font-size: 12px;
 }
 
+.input-area.compact .output-trigger {
+  padding: 4px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  border-radius: 12px;
+}
+
+.input-area.compact .output-current {
+  font-size: 12px;
+}
+
 textarea {
   flex: 1;
   height: 180px;
@@ -171,11 +270,108 @@ textarea {
   resize: none;
   outline: none;
 }
+
 textarea:focus {
   border: none;
 }
 
-/* 圆形发送按钮 */
+/* ====== 输出方式切换按钮 ====== */
+.output-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 14px;
+  border-radius: 16px;
+  background: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.output-trigger:hover {
+  background: #eceef2;
+  border-color: #d0d3d7;
+}
+
+.output-current {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.output-chevron {
+  color: #999;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.output-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* ====== 弹出菜单（向上展开） ====== */
+.output-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: 170px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.10), 0 -2px 6px rgba(0, 0, 0, 0.05);
+  padding: 6px;
+  z-index: 20;
+}
+
+.output-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.output-option:hover {
+  background: #f5f7fa;
+}
+
+.output-option.active {
+  background: #e8eeff;
+  color: #1677ff;
+}
+
+.opt-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: #999;
+}
+
+.output-option.active .opt-desc {
+  color: #7ba5f7;
+}
+
+/* ====== 过渡动画 ====== */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+/* ====== 发送按钮 ====== */
 .send-btn-inner {
   position: absolute;
   right: 24px;
@@ -192,19 +388,22 @@ textarea:focus {
   justify-content: center;
   transition: all 0.2s ease;
 }
+
 .send-btn-inner.active {
   background: #1677ff;
   color: #ffffff;
 }
 
-/* 模式按钮容器，统一卡片内边距 */
+/* ====== 模式按钮 ====== */
 .mode-buttons {
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   padding: 4px 0 0 16px;
   position: relative;
   z-index: 10;
 }
+
 .mode-btn {
   padding: 5px 14px;
   border-radius: 16px;
@@ -214,22 +413,14 @@ textarea:focus {
   cursor: pointer;
   transition: all 0.2s;
 }
+
 .mode-btn.active {
   background: #1677ff;
   color: #fff;
   border-color: #1677ff;
 }
 
-.mode-divider {
-  width: 1px;
-  height: 20px;
-  background: #e5e7eb;
-  margin: 0 2px;
-  align-self: center;
-}
-
-/* 废弃原来的home-input差异化样式，直接统一 */
 .home-input {
-  /* 样式已经合并到 .input-area，这里清空防止冲突 */
+  /* 占位 */
 }
 </style>

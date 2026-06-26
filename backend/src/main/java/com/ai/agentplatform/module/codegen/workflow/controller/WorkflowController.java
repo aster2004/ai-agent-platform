@@ -35,14 +35,17 @@ public class WorkflowController {
         return Result.success(workflowService.execute(request));
     }
 
+    // 显式声明 charset=UTF-8，防止 Windows 上浏览器按系统默认编码（GBK）解析导致乱码
+    private static final String SSE_PRODUCES = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8";
+
     @Operation(summary = "流式执行 LangGraph 工作流（全量）")
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/stream", produces = SSE_PRODUCES)
     public SseEmitter executeStream(@Valid @RequestBody WorkflowRequest request) {
         return workflowService.executeStream(request);
     }
 
     @Operation(summary = "深度分析：生成需求文档（阶段一）")
-    @PostMapping(value = "/analyze/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/analyze/stream", produces = SSE_PRODUCES)
     public SseEmitter analyzeStream(@Valid @RequestBody WorkflowRequest request) {
         return workflowService.executeAnalyzeStream(request);
     }
@@ -50,12 +53,12 @@ public class WorkflowController {
     @Operation(summary = "更新需求文档内容")
     @PutMapping("/{generateId}/prd")
     public Result<WorkflowResultVO> updatePrd(@PathVariable Long generateId,
-                                            @Valid @RequestBody UpdatePrdRequest request) {
+                                              @Valid @RequestBody UpdatePrdRequest request) {
         return Result.success(workflowService.updatePrd(generateId, request));
     }
 
     @Operation(summary = "确认需求文档后生成应用（阶段二）")
-    @PostMapping(value = "/{generateId}/continue/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/{generateId}/continue/stream", produces = SSE_PRODUCES)
     public SseEmitter continueStream(@PathVariable Long generateId) {
         return workflowService.executeContinueStream(generateId);
     }

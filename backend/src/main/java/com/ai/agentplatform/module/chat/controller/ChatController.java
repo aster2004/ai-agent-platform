@@ -2,6 +2,7 @@ package com.ai.agentplatform.module.chat.controller;
 
 import com.ai.agentplatform.common.result.Result;
 import com.ai.agentplatform.common.util.SecurityUtils;
+import com.ai.agentplatform.module.chat.dto.ChatRenameRequest;
 import com.ai.agentplatform.module.chat.dto.ChatSaveRequest;
 import com.ai.agentplatform.module.chat.dto.ChatSessionCreateRequest;
 import com.ai.agentplatform.module.chat.service.ChatService;
@@ -55,6 +56,23 @@ public class ChatController {
             request = new ChatSessionCreateRequest();
         }
         return Result.success(chatService.createSession(request, SecurityUtils.getCurrentUserId()));
+    }
+
+    @Operation(summary = "软删除单条消息")
+    @DeleteMapping("/message/{id}")
+    public Result<Void> deleteMessage(@PathVariable Long id) {
+        chatService.deleteMessage(id, SecurityUtils.getCurrentUserId());
+        return Result.success();
+    }
+
+    @Operation(summary = "重命名会话")
+    @PutMapping("/session/{id}")
+    public Result<Void> renameSession(@PathVariable Long id, @RequestBody(required = false) ChatRenameRequest body) {
+        if (body == null || body.getTitle() == null) {
+            return Result.fail(400, "标题不能为空");
+        }
+        chatService.renameSession(id, body.getTitle(), SecurityUtils.getCurrentUserId());
+        return Result.success();
     }
 
     @Operation(summary = "删除会话")

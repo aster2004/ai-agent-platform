@@ -21,7 +21,7 @@ public class CodeGenRequest {
     @Schema(description = "对话会话ID，空则无多轮上下文", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
     private Long sessionId;
 
-    @Pattern(regexp = "^(HTML|VUE|MULTI_FILE|WORKFLOW)$", message = "生成类型仅支持：HTML/VUE/MULTI_FILE/WORKFLOW")
+    @Pattern(regexp = "^(HTML|VUE|MULTI_FILE|WORKFLOW|GENERAL)$", message = "生成类型仅支持：HTML/VUE/MULTI_FILE/WORKFLOW/GENERAL")
     @Schema(description = "代码生成类型", example = "VUE")
     private String generateType;
 

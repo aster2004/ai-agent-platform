@@ -59,16 +59,22 @@ const router = createRouter({
           meta: { title: '个人信息' },
         },
         {
-          path: 'codegen',
-          name: 'CodeGen',
-          component: () => import('@/views/codegen/CodeGenView.vue'),
-          meta: { title: '代码生成' },
+          path: 'chat',
+          name: 'ChatHome',
+          component: () => import('@/views/chat/ChatHome.vue'),
+          meta: { title: '首页' },
         },
         {
-          path: 'chat',
-          name: 'Chat',
-          component: () => import('@/views/chat/ChatView.vue'),
-          meta: { title: '首页' }
+          path: 'chat/session/:sessionId',
+          name: 'ChatSession',
+          component: () => import('@/views/chat/ChatSessionView.vue'),
+          meta: { title: '对话' },
+        },
+        {
+          path: 'codegen/split',
+          name: 'SplitLayout',
+          component: () => import('@/views/codegen/SplitLayoutView.vue'),
+          meta: { title: '代码预览' },
         }
       ],
     },

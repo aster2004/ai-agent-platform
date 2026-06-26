@@ -16,17 +16,24 @@ import com.ai.agentplatform.module.codegen.util.CurrentUserUtil;
 import com.ai.agentplatform.module.codegen.util.ParamFillUtil;
 import com.ai.agentplatform.module.codegen.vo.CodeGenPageVO;
 import com.ai.agentplatform.module.codegen.vo.CodeGenVO;
+import com.ai.agentplatform.module.codegen.workflow.state.CodeFile;
+import com.ai.agentplatform.module.codegen.workflow.tool.FileToolService;
+import com.alibaba.fastjson2.JSON;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.SystemMessage;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -53,6 +60,8 @@ public class CodeGenServiceImpl implements CodeGenService {
     private CodeGenerateMapper mapper;
     @Resource
     private CodeGenStrategyFactory strategyFactory;
+    @Resource
+    private FileToolService fileToolService;
     @Resource(name = "codeGenStreamExecutor")
     private Executor streamExecutor;
 
@@ -66,6 +75,12 @@ public class CodeGenServiceImpl implements CodeGenService {
         String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
         Long sessionId = request.getSessionId();
 
+        // GENERAL 模式走工具驱动生成
+        if (CodeGenConstant.GENERATE_TYPE_GENERAL.equals(realGenerateType)) {
+            return generateSyncGeneral(request, userId, realAppId, realModel, sessionId);
+        }
+
+        // 原有固定格式路径
         List<String> history = chatHelper.loadChatHistory(sessionId);
         String fullPrompt = promptBuilder.buildPrompt(request, history);
 
@@ -116,6 +131,61 @@ public class CodeGenServiceImpl implements CodeGenService {
                     userId, realModel, realGenerateType, costTime, e);
             return buildFailRecordAndVo(userId, realAppId, sessionId, request.getPrompt(),
                     realModel, realGenerateType, e.getMessage(), costTime);
+        }
+    }
+
+    /** GENERAL 模式同步生成：使用 AiServices + ChatModel + FileToolService 工具驱动 */
+    private CodeGenVO generateSyncGeneral(CodeGenRequest request, Long userId, Long realAppId,
+                                          String realModel, Long sessionId) {
+        fileToolService.reset();
+        long startTime = System.currentTimeMillis();
+        try {
+            ChatModel chatModel = modelFactory.getChatModel(realModel);
+            String fullPrompt = promptBuilder.buildPrompt(request, List.of());
+
+            QuickGenSyncAgent agent = AiServices.builder(QuickGenSyncAgent.class)
+                    .chatModel(chatModel)
+                    .tools(fileToolService)
+                    .build();
+            agent.generate(fullPrompt);
+
+            List<CodeFile> files = fileToolService.snapshotFiles();
+            String filesJson = JSON.toJSONString(files);
+            long costTime = System.currentTimeMillis() - startTime;
+
+            CodeGenerate record = new CodeGenerate();
+            record.setUserId(userId);
+            record.setAppId(realAppId);
+            record.setSessionId(sessionId);
+            record.setPrompt(request.getPrompt());
+            record.setCodeContent(filesJson);
+            record.setModelName(realModel);
+            record.setGenerateType(CodeGenConstant.GENERATE_TYPE_GENERAL);
+            record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+            record.setCostTokens(filesJson.length());
+            record.setDuration((int) costTime);
+            record.setWorkflowStep("");
+            mapper.insert(record);
+            appSyncHelper.syncCodeToApp(realAppId, filesJson);
+
+            CodeGenVO vo = new CodeGenVO();
+            vo.setId(record.getId());
+            vo.setPrompt(record.getPrompt());
+            vo.setCodeContent(filesJson);
+            vo.setModelName(realModel);
+            vo.setGenerateType(record.getGenerateType());
+            vo.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+            vo.setCostTokens(record.getCostTokens());
+            vo.setDuration(record.getDuration());
+            vo.setCreateTime(record.getCreateTime());
+            vo.setErrorMsg(null);
+            vo.setWorkflowStep("");
+            return vo;
+        } catch (Exception e) {
+            long costTime = System.currentTimeMillis() - startTime;
+            log.error("[GENERAL同步生成失败] userId={}, model={}, 耗时={}ms", userId, realModel, costTime, e);
+            return buildFailRecordAndVo(userId, realAppId, sessionId, request.getPrompt(),
+                    realModel, CodeGenConstant.GENERATE_TYPE_GENERAL, e.getMessage(), costTime);
         }
     }
 
@@ -176,6 +246,14 @@ public class CodeGenServiceImpl implements CodeGenService {
                 String realModel = paramFillUtil.fillModel(request.getModelName());
                 String realGenerateType = paramFillUtil.fillGenerateType(request.getGenerateType());
                 Long sessionId = request.getSessionId();
+
+                // GENERAL 模式走工具驱动流式生成
+                if (CodeGenConstant.GENERATE_TYPE_GENERAL.equals(realGenerateType)) {
+                    generateStreamGeneral(emitter, request, userId, realAppId, realModel, sessionId);
+                    return;
+                }
+
+                // 原有固定格式流式路径
                 List<String> history = chatHelper.loadChatHistory(sessionId);
                 String fullPrompt = promptBuilder.buildPrompt(request, history);
 
@@ -187,7 +265,6 @@ public class CodeGenServiceImpl implements CodeGenService {
                 long startTimestamp = System.currentTimeMillis();
 
                 streamModel.chat(messageList, new StreamingChatResponseHandler() {
-                    // 分片方法：正确名称 onPartialResponse
                     @Override
                     public void onPartialResponse(String token) {
                         fullContent.append(token);
@@ -198,14 +275,11 @@ public class CodeGenServiceImpl implements CodeGenService {
                         }
                     }
 
-                    // 完成回调
-
                     @Override
                     public void onCompleteResponse(ChatResponse response) {
                         try {
                             long costMs = System.currentTimeMillis() - startTimestamp;
                             String aiRawText = fullContent.toString();
-                            // 策略解析多文件/单文件
                             CodeGenStrategy strategy = strategyFactory.getStrategy(realGenerateType);
                             String totalText = strategy.parseResult(aiRawText);
 
@@ -214,7 +288,6 @@ public class CodeGenServiceImpl implements CodeGenService {
                             record.setAppId(realAppId);
                             record.setSessionId(sessionId);
                             record.setPrompt(request.getPrompt());
-                            // 存储解析后的完整JSON字符串
                             record.setCodeContent(totalText);
                             record.setModelName(realModel);
                             record.setGenerateType(realGenerateType);
@@ -224,7 +297,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                             record.setWorkflowStep("BASIC_CODE_GEN");
                             mapper.insert(record);
                             appSyncHelper.syncCodeToApp(realAppId, totalText);
-                            sseUtil.sendFinish(emitter);
+                            sseUtil.sendFinish(emitter, totalText);
                         } catch (Exception e) {
                             log.error("流式入库失败", e);
                             try {
@@ -232,7 +305,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                             } catch (Exception ignored) {}
                         }
                     }
-                    // 异常回调
+
                     @Override
                     public void onError(Throwable throwable) {
                         log.error("流式模型调用异常", throwable);
@@ -251,25 +324,130 @@ public class CodeGenServiceImpl implements CodeGenService {
         return emitter;
     }
 
+    /**
+     * GENERAL 模式流式生成。
+     * 使用与 GenerateNode 相同的可靠模式：AiServices + 阻塞 ChatModel + FileToolService。
+     * AI 工具调用期间通过 fileCreatedCallback 实时推送文件创建进度到前端，
+     * AI 完成后一次写入记录 + 推送 finish。
+     */
+    private void generateStreamGeneral(SseEmitter emitter, CodeGenRequest request,
+                                       Long userId, Long realAppId, String realModel,
+                                       Long sessionId) {
+        fileToolService.reset();
+        // 注册回调：每次 AI 调用 createFile 时实时通知前端
+        fileToolService.setFileCreatedCallback(path -> {
+            try {
+                sseUtil.sendFileCreated(emitter, path);
+            } catch (IOException e) {
+                log.error("SSE file_created 推送异常", e);
+            }
+        });
+
+        try {
+            ChatModel chatModel = modelFactory.getChatModel(realModel);
+            String fullPrompt = promptBuilder.buildPrompt(request, List.of());
+            long startTimestamp = System.currentTimeMillis();
+
+            // 通知前端 AI 开始工作
+            sseUtil.sendChunk(emitter, "正在分析需求并创建文件...\n");
+
+            // 使用与 GenerateNode 相同的可靠模式
+            QuickGenSyncAgent agent = AiServices.builder(QuickGenSyncAgent.class)
+                    .chatModel(chatModel)
+                    .tools(fileToolService)
+                    .build();
+            agent.generate(fullPrompt);
+
+            long costMs = System.currentTimeMillis() - startTimestamp;
+            List<CodeFile> files = fileToolService.snapshotFiles();
+
+            // 兜底：AI 未用工具时，将文本输出作为单文件
+            if (files.isEmpty()) {
+                CodeFile fallback = new CodeFile("output.txt",
+                        "AI 未使用 createFile 工具，请重试或检查模型配置");
+                files.add(fallback);
+                log.warn("GENERAL 模式 AI 未调用任何工具，返回兜底文件");
+            }
+
+            String filesJson = JSON.toJSONString(files);
+
+            // 写入数据库记录
+            CodeGenerate record = new CodeGenerate();
+            record.setUserId(userId);
+            record.setAppId(realAppId);
+            record.setSessionId(sessionId);
+            record.setPrompt(request.getPrompt());
+            record.setCodeContent(filesJson);
+            record.setModelName(realModel);
+            record.setGenerateType(CodeGenConstant.GENERATE_TYPE_GENERAL);
+            record.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_SUCCESS);
+            record.setCostTokens(filesJson.length());
+            record.setDuration((int) costMs);
+            record.setWorkflowStep("BASIC_CODE_GEN");
+            mapper.insert(record);
+            appSyncHelper.syncCodeToApp(realAppId, filesJson);
+
+            sseUtil.sendFinish(emitter, filesJson);
+            log.info("GENERAL 流式生成完成, 文件数={}, 耗时={}ms", files.size(), costMs);
+        } catch (Exception e) {
+            log.error("GENERAL流式生成失败", e);
+            // 尝试写入失败记录
+            try {
+                CodeGenerate failRecord = new CodeGenerate();
+                failRecord.setUserId(userId);
+                failRecord.setAppId(realAppId);
+                failRecord.setSessionId(sessionId);
+                failRecord.setPrompt(request.getPrompt());
+                failRecord.setModelName(realModel);
+                failRecord.setGenerateType(CodeGenConstant.GENERATE_TYPE_GENERAL);
+                failRecord.setGenerateStatus(CodeGenConstant.GENERATE_STATUS_FAILED);
+                failRecord.setErrorMsg(truncateErrorMsg(e.getMessage()));
+                failRecord.setDuration(0);
+                failRecord.setWorkflowStep("");
+                mapper.insert(failRecord);
+            } catch (Exception dbEx) {
+                log.error("GENERAL失败记录入库异常", dbEx);
+            }
+            try {
+                sseUtil.sendError(emitter, "生成失败：" + e.getMessage());
+            } catch (Exception ignored) {}
+        } finally {
+            fileToolService.clearFileCreatedCallback();
+        }
+    }
+
     @Override
     public CodeGenPageVO pageRecord(Integer pageNum, Integer pageSize) {
-        // 1. 参数校验：防止非法分页参数
         if(pageNum == null || pageNum < 1) pageNum = 1;
         if(pageSize == null || pageSize < 1 || pageSize > 100) pageSize = 10;
         Long userId = CurrentUserUtil.getCurrentUserId();
-        // 2. 计算分页偏移量
         Integer offset = (pageNum - 1) * pageSize;
 
-        // 3. 查询数据：传入offset和pageSize
         List<CodeGenVO> dataList = mapper.selectPage(userId, pageSize, offset);
         Long totalCount = mapper.countByUserId(userId);
 
-        // 4. 封装分页VO
         CodeGenPageVO pageVO = new CodeGenPageVO();
         pageVO.setList(dataList);
         pageVO.setTotal(totalCount);
         pageVO.setPageNum(pageNum);
         pageVO.setPageSize(pageSize);
         return pageVO;
+    }
+
+    // ===================== GENERAL 模式 AI Agent 接口 =====================
+
+    /** AI Agent：通过 createFile/writeFile 工具自主决定技术栈和文件结构 */
+    interface QuickGenSyncAgent {
+        @SystemMessage("""
+                你是全栈开发专家。根据用户需求自主决定技术栈和项目结构。
+                规则：
+                1. 必须使用 createFile 工具创建每一个文件，不要直接在回复中输出代码块
+                2. 先简要说明项目结构（用文字），然后逐个创建文件
+                3. 每个文件调用一次 createFile，传入文件相对路径和完整内容
+                4. 支持任何语言和框架：Python、Java、Go、Rust、Node.js、HTML/CSS/JS、Vue、React 等
+                5. 如有多文件，确保入口文件（如 index.html、main.py、App.java）最先创建
+                6. 代码内容必须完整可运行，不要省略或缩写
+                """)
+        String generate(@dev.langchain4j.service.UserMessage String userPrompt);
     }
 }

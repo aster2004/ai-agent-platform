@@ -1,8 +1,8 @@
 import { EXPIRED_MSG, handleSessionExpired } from '@/utils/authSession'
 
 export async function readSseStream(
-  response: Response,
-  onEvent: (eventName: string, data: string) => void,
+    response: Response,
+    onEvent: (eventName: string, data: string) => void,
 ) {
   if (!response.ok) {
     if (response.status === 401) {
@@ -32,7 +32,7 @@ function parseSseChunk(chunk: string, onEvent: (eventName: string, data: string)
   const dataLines: string[] = []
   for (const line of chunk.split('\n')) {
     if (line.startsWith('event:')) eventName = line.slice(6).trim()
-    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+    if (line.startsWith('data:')) dataLines.push(line.slice(5))
   }
   if (dataLines.length) onEvent(eventName, dataLines.join('\n'))
 }

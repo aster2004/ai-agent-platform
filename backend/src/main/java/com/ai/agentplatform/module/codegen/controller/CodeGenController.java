@@ -39,7 +39,10 @@ public class CodeGenController {
      * 2. SSE长连接流式分段生成代码
      * JWT 鉴权由 CodeGenSecurityConfig + 成员1 JwtAuthFilter 统一处理
      */
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    // 显式声明 charset=UTF-8，防止 Windows 上浏览器按系统默认编码（GBK）解析导致乱码
+    private static final String SSE_PRODUCES = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=UTF-8";
+
+    @PostMapping(value = "/stream", produces = SSE_PRODUCES)
     @Operation(summary = "SSE流式代码生成", description = "长连接实时分片推送代码片段，全部输出完成自动入库")
     public SseEmitter generateStream(@Valid @RequestBody CodeGenRequest request) {
         return codeGenService.generateStream(request);

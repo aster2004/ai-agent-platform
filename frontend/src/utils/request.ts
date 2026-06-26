@@ -108,7 +108,7 @@ type PageParams = Record<string, any> & {
     pageSize?: number
 }
 export function getPage<T>(url: string, params: PageParams = {}) {
-    const { pageNum = 1, pageSize = 1, ...rest } = params
+    const { pageNum = 1, pageSize = 10, ...rest } = params
     return get<T>(url, { pageNum, pageSize, ...rest })
 }
 

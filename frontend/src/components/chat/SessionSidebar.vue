@@ -45,12 +45,25 @@
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @click.stop
     >
+      <div class="menu-item" @click="handleRename">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+        </svg>
+        <span>重命名</span>
+      </div>
       <div class="menu-item danger" @click="handleDelete">
-        <DeleteOutlined />
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="3 6 5 6 21 6" />
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          <line x1="10" y1="11" x2="10" y2="17" />
+          <line x1="14" y1="11" x2="14" y2="17" />
+        </svg>
         <span>删除</span>
       </div>
     </div>
 
+    <!-- 删除确认弹窗 -->
     <div v-if="showDeleteModal" class="modal-mask" @click.self="closeDeleteModal">
       <div class="modal-box delete-modal">
         <h3 class="modal-title">确定删除对话？</h3>
@@ -61,12 +74,31 @@
         </div>
       </div>
     </div>
+
+    <!-- 重命名弹窗 -->
+    <div v-if="showRenameModal" class="modal-mask" @click.self="closeRenameModal">
+      <div class="modal-box rename-modal">
+        <h3 class="modal-title">重命名</h3>
+        <input
+            ref="renameInputRef"
+            v-model="renameTitle"
+            class="rename-input"
+            placeholder="输入新名称"
+            maxlength="30"
+            @keydown.enter="confirmRename"
+        />
+        <div class="modal-btn-group">
+          <button class="btn-cancel" @click="closeRenameModal">取消</button>
+          <button class="btn-confirm" :disabled="!renameTitle.trim()" @click="confirmRename">确定</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { EllipsisOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { computed, ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { EllipsisOutlined } from '@ant-design/icons-vue'
 import type { ChatSession } from '@/types/chat'
 
 const props = defineProps<{
@@ -78,6 +110,7 @@ const emit = defineEmits([
   'change-session',
   'create-session',
   'delete-session',
+  'rename-session',
   'toggle-sidebar',
 ])
 
@@ -89,7 +122,11 @@ const contextMenu = ref({
 })
 
 const showDeleteModal = ref(false)
+const showRenameModal = ref(false)
 const targetDel = ref<ChatSession | null>(null)
+const targetRename = ref<ChatSession | null>(null)
+const renameTitle = ref('')
+const renameInputRef = ref<HTMLInputElement | null>(null)
 
 const groupedSessions = computed(() => {
   const today: ChatSession[] = []
@@ -144,6 +181,28 @@ const confirmDelete = () => {
   if (!targetDel.value) return
   emit('delete-session', targetDel.value.id)
   closeDeleteModal()
+}
+
+const handleRename = () => {
+  if (!contextMenu.value.currentItem) return
+  hideContextMenu()
+  targetRename.value = contextMenu.value.currentItem
+  renameTitle.value = targetRename.value.sessionTitle || ''
+  showRenameModal.value = true
+  nextTick(() => renameInputRef.value?.focus())
+}
+
+const closeRenameModal = () => {
+  showRenameModal.value = false
+  targetRename.value = null
+  renameTitle.value = ''
+}
+
+const confirmRename = () => {
+  const title = renameTitle.value.trim()
+  if (!title || !targetRename.value) return
+  emit('rename-session', targetRename.value.id, title)
+  closeRenameModal()
 }
 </script>
 
@@ -348,5 +407,46 @@ const confirmDelete = () => {
   border: none;
   border-radius: 8px;
   cursor: pointer;
+}
+
+/* 重命名弹窗 */
+.rename-modal {
+  width: 360px;
+}
+
+.rename-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 15px;
+  margin-bottom: 20px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.rename-input:focus {
+  border-color: #1677ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
+}
+
+.btn-confirm {
+  padding: 8px 24px;
+  background-color: #1677ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-confirm:hover:not(:disabled) {
+  background-color: #4096ff;
+}
+
+.btn-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

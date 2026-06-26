@@ -4,19 +4,15 @@
       <div class="header-left">
         <span class="logo">AI Agent</span>
         <a-menu
-          v-model:selectedKeys="selectedKeys"
-          mode="horizontal"
-          class="nav-menu"
-          @click="handleMenuClick"
+            v-model:selectedKeys="selectedKeys"
+            mode="horizontal"
+            class="nav-menu"
+            @click="handleMenuClick"
         >
           <!-- 成员7：新增首页导航菜单 -->
           <a-menu-item key="/chat">
             <HomeOutlined />
             首页
-          </a-menu-item>
-          <a-menu-item key="/codegen">
-            <CodeOutlined />
-            代码生成
           </a-menu-item>
           <a-menu-item key="/app">
             <AppstoreOutlined />
@@ -80,7 +76,6 @@ import {
   HomeOutlined,
   AppstoreOutlined,
   CloudUploadOutlined,
-  CodeOutlined,
   StarOutlined,
   UserOutlined,
   LogoutOutlined,

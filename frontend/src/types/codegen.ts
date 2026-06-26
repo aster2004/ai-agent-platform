@@ -2,7 +2,7 @@ export interface CodeGenParams {
   prompt: string
   appId?: number
   sessionId?: number
-  generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW'
+  generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL'
   modelName?: string
 }
 
@@ -35,13 +35,13 @@ export interface CodeFile {
 }
 
 export type WorkflowStepCode =
-  | 'analyze'
-  | 'prd'
-  | 'prd_ready'
-  | 'strategy'
-  | 'generate'
-  | 'validate'
-  | 'done'
+    | 'analyze'
+    | 'prd'
+    | 'prd_ready'
+    | 'strategy'
+    | 'generate'
+    | 'validate'
+    | 'done'
 
 export type WorkflowPhase = 'analyzing' | 'await_confirm' | 'generating' | 'done'
 
@@ -55,7 +55,7 @@ export interface WorkflowParams {
   prompt: string
   appId?: number
   sessionId?: number
-  generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW'
+  generateType?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL'
 }
 
 export interface WorkflowResult {
