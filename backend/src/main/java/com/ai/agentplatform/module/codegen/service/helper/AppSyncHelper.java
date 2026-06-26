@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,8 +33,88 @@ public class AppSyncHelper {
     @Resource
     private RestTemplate codeGenRestTemplate;
 
+    /** 成员2 创建应用接口路径 */
+    private static final String APP_CREATE_URL = "/api/app";
+
     /** 成员2 更新代码接口路径 */
     private static final String APP_CODE_UPDATE_URL = "/api/app/{id}/code";
+
+    /**
+     * 生成成功后创建应用并写入代码。
+     * 若已有 appId（重新生成场景）则复用，否则 POST /api/app 新建。
+     *
+     * @return 最终关联的应用 ID，创建失败时返回 null
+     */
+    public Long persistGeneratedApp(Long existingAppId, String appName, String prompt, String fullCode) {
+        Long appId = resolveOrCreateApp(existingAppId, appName, prompt);
+        if (appId == null) {
+            log.error("[应用同步] 无法创建或解析 appId，跳过写入代码");
+            return null;
+        }
+        syncCodeToApp(appId, fullCode);
+        return appId;
+    }
+
+    /**
+     * 解析已有 appId，或在生成成功后创建新应用
+     */
+    public Long resolveOrCreateApp(Long existingAppId, String appName, String prompt) {
+        if (existingAppId != null && existingAppId > 0) {
+            return existingAppId;
+        }
+        String description = prompt != null && prompt.length() > 500
+                ? prompt.substring(0, 497) + "..."
+                : prompt;
+        return createApp(deriveAppName(appName, prompt), description);
+    }
+
+    /**
+     * 调用成员2 POST /api/app 创建应用
+     */
+    public Long createApp(String appName, String description) {
+        try {
+            Map<String, String> body = new HashMap<>();
+            body.put("appName", appName);
+            if (description != null && !description.isBlank()) {
+                body.put("description", description);
+            }
+            String respJson = codeGenRestTemplate.postForObject(APP_CREATE_URL, body, String.class);
+            JSONObject respObj = JSON.parseObject(respJson);
+            if (respObj == null || respObj.getIntValue("code") != 200) {
+                log.error("[应用创建] 接口返回异常: {}", respJson);
+                return null;
+            }
+            JSONObject appData = respObj.getJSONObject("data");
+            if (appData == null) {
+                log.error("[应用创建] 响应 data 为空: {}", respJson);
+                return null;
+            }
+            Long id = appData.getLong("id");
+            log.info("[应用创建] appName={}, appId={}", appName, id);
+            return id;
+        } catch (Exception e) {
+            log.error("[应用创建失败] appName={}, 原因: {}", appName, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 从可选应用名或 prompt 推导展示名称（prompt 取前 20 字）
+     */
+    public static String deriveAppName(String appName, String prompt) {
+        if (appName != null && !appName.isBlank()) {
+            String trimmed = appName.trim();
+            return trimmed.length() > 100 ? trimmed.substring(0, 100) : trimmed;
+        }
+        if (prompt == null || prompt.isBlank()) {
+            return "未命名应用";
+        }
+        String normalized = prompt.trim().replaceAll("\\s+", " ");
+        if (normalized.length() <= 20) {
+            return normalized;
+        }
+        return normalized.substring(0, 20) + "...";
+    }
 
     /**
      * 真实同步代码到应用模块

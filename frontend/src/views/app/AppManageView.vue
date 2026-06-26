@@ -16,11 +16,12 @@
           </a-select>
         </template>
         <a-button @click="goDeploy()">部署分享</a-button>
-        <a-button type="primary" @click="openCreateModal">新建应用</a-button>
       </a-space>
     </div>
 
+    <!-- 管理员：表格布局 -->
     <a-table
+      v-if="isAdmin"
       :columns="columns"
       :data-source="appList"
       :loading="loading"
@@ -74,9 +75,67 @@
       </template>
     </a-table>
 
+    <!-- 普通用户：卡片布局 -->
+    <template v-else>
+      <a-spin :spinning="loading">
+        <a-empty v-if="!loading && appList.length === 0" description="暂无应用" />
+
+        <a-row v-else :gutter="[16, 16]">
+          <a-col
+            v-for="app in appList"
+            :key="app.id"
+            :xs="24"
+            :sm="12"
+            :md="8"
+            :lg="6"
+          >
+            <div class="app-card-wrapper" @click="openAppChat(app)">
+              <a-card hoverable class="app-card">
+                <template #cover>
+                  <div class="card-cover-wrap">
+                    <AppCardCover :cover-img="app.coverImg" :alt="app.appName" />
+                    <div class="card-action-overlay" @click.stop>
+                      <ul class="action-menu">
+                        <li @click.stop="goDeploy(app.id)">部署分享</li>
+                        <template v-if="canManageApp(app)">
+                          <li @click.stop="openEditModal(app)">编辑</li>
+                          <li class="action-danger" @click.stop="confirmDelete(app.id)">下架</li>
+                        </template>
+                      </ul>
+                    </div>
+                  </div>
+                </template>
+                <a-card-meta :title="app.appName">
+                  <template #description>
+                    <p class="card-desc">{{ app.description || '暂无描述' }}</p>
+                    <p class="card-meta">
+                      <span class="card-creator">{{ resolveCreatorName(app) }}</span>
+                      <span class="card-time">{{ formatTime(app.createTime) }}</span>
+                    </p>
+                  </template>
+                </a-card-meta>
+              </a-card>
+            </div>
+          </a-col>
+        </a-row>
+      </a-spin>
+
+      <div v-if="pagination.total > 0" class="card-pagination">
+        <a-pagination
+          v-model:current="pagination.current"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :show-size-changer="true"
+          :show-total="(total: number) => `共 ${total} 条`"
+          @change="handleCardPageChange"
+          @show-size-change="handleCardPageChange"
+        />
+      </div>
+    </template>
+
     <a-modal
       v-model:open="modalVisible"
-      :title="isEdit ? '编辑应用' : '新建应用'"
+      title="编辑应用"
       :confirm-loading="modalLoading"
       ok-text="确定"
       cancel-text="取消"
@@ -100,7 +159,7 @@
             show-count
           />
         </a-form-item>
-        <a-form-item v-if="isEdit" label="应用封面">
+        <a-form-item label="应用封面">
           <div class="cover-upload">
             <a-upload
               list-type="picture-card"
@@ -109,7 +168,12 @@
               :before-upload="beforeCoverUpload"
               :custom-request="handleCoverUpload"
             >
-              <img v-if="formState.coverImg" :src="formState.coverImg" alt="封面预览" class="cover-preview" />
+              <img
+                v-if="formState.coverImg"
+                :src="resolveCoverUrl(formState.coverImg)"
+                alt="封面预览"
+                class="cover-preview"
+              />
               <div v-else class="cover-upload-placeholder">
                 <LoadingOutlined v-if="coverUploading" />
                 <PlusOutlined v-else />
@@ -135,22 +199,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
-import type { UploadProps } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import type { TablePaginationConfig, UploadProps } from 'ant-design-vue'
 import { LoadingOutlined, PlusOutlined } from '@ant-design/icons-vue'
-import type { TablePaginationConfig } from 'ant-design-vue'
+import AppCardCover from '@/components/app/AppCardCover.vue'
 import {
-  createApp,
   deleteApp,
   getAdminAppList,
   getAppList,
+  getAppSessionId,
   setAppFeatured,
   updateApp,
   uploadAppCover,
 } from '@/api/app'
+import { getSessionList } from '@/api/chat'
 import { useUserStore } from '@/stores/user'
+import { resolveCoverUrl } from '@/utils/assetUrl'
 import type { AppVO } from '@/types/app'
 
 const router = useRouter()
@@ -161,15 +227,43 @@ function goDeploy(id?: number) {
   router.push(id ? `/app/${id}/deploy` : '/app/deploy')
 }
 
+async function openAppChat(app: AppVO) {
+  try {
+    const res = await getAppSessionId(app.id)
+    if (res.code === 200 && res.data) {
+      router.push(`/chat/session/${res.data}`)
+      return
+    }
+
+    const sessRes = await getSessionList(app.id)
+    const sessions = sessRes.data ?? []
+    if (sessions.length > 0) {
+      router.push(`/chat/session/${sessions[0].id}`)
+      return
+    }
+
+    const allSessRes = await getSessionList()
+    const matched = (allSessRes.data ?? []).find((s) => s.sessionTitle === app.appName)
+    if (matched) {
+      router.push(`/chat/session/${matched.id}`)
+      return
+    }
+
+    message.error('未找到该应用对应的对话')
+  } catch (e: any) {
+    message.error(e.message || '跳转对话失败')
+  }
+}
+
 const loading = ref(false)
 const modalLoading = ref(false)
 const modalVisible = ref(false)
-const isEdit = ref(false)
 const editingId = ref<number | null>(null)
 const featuredLoadingId = ref<number | null>(null)
 const featuredFilter = ref<number | undefined>(undefined)
 const coverUploading = ref(false)
 const appList = ref<AppVO[]>([])
+let coverPollTimer: ReturnType<typeof setInterval> | null = null
 
 const formState = reactive({
   appName: '',
@@ -210,30 +304,97 @@ function canManageApp(record: AppVO) {
   return isAdmin.value || record.userId === userStore.userId
 }
 
-async function loadList() {
-  loading.value = true
+function formatTime(time: string) {
+  if (!time) return ''
+  return time.replace('T', ' ').slice(0, 16)
+}
+
+function resolveCreatorName(app: AppVO) {
+  return app.creatorName?.trim() || `用户 #${app.userId}`
+}
+
+function handleCardPageChange(page: number, pageSize: number) {
+  pagination.current = page
+  pagination.pageSize = pageSize
+  loadList()
+}
+
+function confirmDelete(id: number) {
+  Modal.confirm({
+    title: '确定下架该应用吗？',
+    content: '下架后数据仍保留，仅不再显示。',
+    okText: '确定',
+    cancelText: '取消',
+    onOk: () => handleDelete(id),
+  })
+}
+
+function hasMissingCover(app: AppVO) {
+  return !app.coverImg?.trim()
+}
+
+function stopCoverPolling() {
+  if (coverPollTimer) {
+    clearInterval(coverPollTimer)
+    coverPollTimer = null
+  }
+}
+
+function startCoverPolling() {
+  stopCoverPolling()
+  if (!appList.value.some(hasMissingCover)) {
+    return
+  }
+  let attempts = 0
+  coverPollTimer = setInterval(async () => {
+    attempts += 1
+    if (attempts > 12 || !appList.value.some(hasMissingCover)) {
+      stopCoverPolling()
+      return
+    }
+    await loadList({ silent: true })
+  }, 5000)
+}
+
+async function loadList(options: { silent?: boolean } = {}) {
+  if (!options.silent) {
+    loading.value = true
+  }
   try {
     if (isAdmin.value) {
       try {
         const res = await getAdminAppList(pagination.current - 1, pagination.pageSize, featuredFilter.value)
         appList.value = res.data.content
         pagination.total = res.data.totalElements
+        if (!options.silent) {
+          startCoverPolling()
+        }
         return
       } catch {
         // localStorage 显示管理员但 JWT 无 ADMIN 权限时，降级为普通列表
         const res = await getAppList(pagination.current - 1, pagination.pageSize)
         appList.value = res.data.content
         pagination.total = res.data.totalElements
+        if (!options.silent) {
+          startCoverPolling()
+        }
         return
       }
     }
     const res = await getAppList(pagination.current - 1, pagination.pageSize)
     appList.value = res.data.content
     pagination.total = res.data.totalElements
+    if (!options.silent) {
+      startCoverPolling()
+    }
   } catch (e: any) {
-    message.error(e.message || '加载应用列表失败')
+    if (!options.silent) {
+      message.error(e.message || '加载应用列表失败')
+    }
   } finally {
-    loading.value = false
+    if (!options.silent) {
+      loading.value = false
+    }
   }
 }
 
@@ -254,15 +415,7 @@ function resetForm() {
   formState.coverImg = ''
 }
 
-function openCreateModal() {
-  isEdit.value = false
-  editingId.value = null
-  resetForm()
-  modalVisible.value = true
-}
-
 function openEditModal(record: AppVO) {
-  isEdit.value = true
   editingId.value = record.id
   formState.appName = record.appName
   formState.description = record.description || ''
@@ -316,19 +469,18 @@ async function handleSubmit() {
 
   modalLoading.value = true
   try {
+    if (editingId.value === null) {
+      return
+    }
+
     const payload = {
       appName: formState.appName.trim(),
       description: formState.description.trim() || undefined,
-      ...(isEdit.value ? { coverImg: formState.coverImg } : {}),
+      coverImg: formState.coverImg,
     }
 
-    if (isEdit.value && editingId.value !== null) {
-      await updateApp(editingId.value, payload)
-      message.success('更新成功')
-    } else {
-      await createApp(payload)
-      message.success('创建成功')
-    }
+    await updateApp(editingId.value, payload)
+    message.success('更新成功')
 
     closeModal()
     await loadList()
@@ -377,6 +529,10 @@ watch(
 
 onMounted(() => {
   loadList()
+})
+
+onBeforeUnmount(() => {
+  stopCoverPolling()
 })
 </script>
 
@@ -436,5 +592,103 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: rgba(0, 0, 0, 0.45);
+}
+
+.app-card-wrapper {
+  height: 100%;
+  cursor: pointer;
+}
+
+.app-card {
+  height: 100%;
+}
+
+.card-cover-wrap {
+  position: relative;
+}
+
+.card-action-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.app-card-wrapper:hover .card-action-overlay {
+  opacity: 1;
+}
+
+.action-menu {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin: 0;
+  padding: 4px 8px;
+  list-style: none;
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.action-menu li {
+  padding: 8px 12px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.85);
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.action-menu li + li {
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.action-menu li:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.action-menu li.action-danger {
+  color: #ff4d4f;
+}
+
+.card-desc {
+  margin: 0 0 8px;
+  color: rgba(0, 0, 0, 0.65);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.card-creator {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  flex-shrink: 0;
+}
+
+.card-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>

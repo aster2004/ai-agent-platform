@@ -1,6 +1,6 @@
 package com.ai.agentplatform.module.codegen.config;
 
-import jakarta.servlet.http.HttpServletRequest;
+import com.ai.agentplatform.module.codegen.support.CodeGenRequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
@@ -10,9 +10,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-
 import java.time.Duration;
 import java.util.List;
 
@@ -48,22 +45,12 @@ public class RestTemplateConfig {
     }
 
     /**
-     * 从当前请求上下文提取 Authorization 头（真实 JWT Token）
-     * 非 Web 上下文（如后台线程/定时任务）返回 Mock Token 兜底
+     * 优先使用异步线程 ThreadLocal 中的 Token，其次当前 Web 请求头，最后 Mock 兜底。
      */
     private String extractCurrentAuthHeader() {
-        try {
-            ServletRequestAttributes attrs =
-                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-            if (attrs != null) {
-                HttpServletRequest currentRequest = attrs.getRequest();
-                String authHeader = currentRequest.getHeader(HttpHeaders.AUTHORIZATION);
-                if (authHeader != null && !authHeader.isBlank()) {
-                    return authHeader;
-                }
-            }
-        } catch (Exception ignored) {
-            // 非 Web 上下文或无当前请求，使用兜底
+        String authHeader = CodeGenRequestContext.resolveAuthorization();
+        if (authHeader != null && !authHeader.isBlank()) {
+            return authHeader;
         }
         return "Bearer dev-mock-token";
     }

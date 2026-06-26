@@ -65,6 +65,12 @@ public class AppController {
         return Result.success(appService.getById(id));
     }
 
+    @Operation(summary = "解析应用关联的对话会话")
+    @GetMapping("/{id}/session")
+    public Result<Long> resolveSession(@PathVariable Long id) {
+        return Result.success(appService.resolveSessionId(id, SecurityUtils.getCurrentUserId()));
+    }
+
     @Operation(summary = "编辑应用")
     @PutMapping("/{id}")
     public Result<AppVO> update(@PathVariable Long id,

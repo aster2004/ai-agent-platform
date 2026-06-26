@@ -22,6 +22,10 @@ export function getAppById(id: number) {
   return request.get<any, Result<AppVO>>(`/api/app/${id}`)
 }
 
+export function getAppSessionId(id: number) {
+  return request.get<any, Result<number>>(`/api/app/${id}/session`)
+}
+
 export function createApp(data: AppCreateParams) {
   return request.post<any, Result<AppVO>>('/api/app', data)
 }

@@ -13,9 +13,11 @@ public class CodeGenRequest {
     @Schema(description = "用户需求描述", requiredMode = Schema.RequiredMode.REQUIRED, example = "写一个Vue3+Element Plus用户管理页面")
     private String prompt;
 
-    @Positive(message = "应用ID必须为正整数")
-    @Schema(description = "所属应用ID，不传默认Mock=1", requiredMode = Schema.RequiredMode.NOT_REQUIRED, example = "1")
+    @Schema(description = "所属应用ID；不传则在生成成功后自动创建新应用", requiredMode = Schema.RequiredMode.NOT_REQUIRED, example = "1")
     private Long appId;
+
+    @Schema(description = "应用名称；不传则从 prompt 前 20 字推导", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+    private String appName;
 
     @Positive(message = "会话ID必须为正整数")
     @Schema(description = "对话会话ID，空则无多轮上下文", requiredMode = Schema.RequiredMode.NOT_REQUIRED)

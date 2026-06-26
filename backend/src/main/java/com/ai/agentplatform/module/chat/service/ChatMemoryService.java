@@ -38,9 +38,9 @@ public class ChatMemoryService {
             stringRedisTemplate.opsForList().rightPush(key, payload);
             stringRedisTemplate.opsForList().trim(key, -MAX_MESSAGES, -1);
             stringRedisTemplate.expire(key, TTL);
-        } catch (JsonProcessingException e) {
-            log.error("Redis 记忆写入失败, sessionId={}", sessionId, e);
-            throw new IllegalStateException("Redis 记忆写入失败");
+        } catch (Exception e) {
+            // Redis 不可用时降级：消息已写入 MySQL，不影响对话主流程
+            log.warn("Redis 记忆写入失败（已降级）, sessionId={}", sessionId, e);
         }
     }
 
@@ -51,15 +51,20 @@ public class ChatMemoryService {
         if (sessionId == null) {
             return Collections.emptyList();
         }
-        String key = buildKey(sessionId);
-        List<String> rawList = stringRedisTemplate.opsForList().range(key, 0, -1);
-        if (rawList == null || rawList.isEmpty()) {
+        try {
+            String key = buildKey(sessionId);
+            List<String> rawList = stringRedisTemplate.opsForList().range(key, 0, -1);
+            if (rawList == null || rawList.isEmpty()) {
+                return Collections.emptyList();
+            }
+            return rawList.stream()
+                    .map(this::parseMemoryPayload)
+                    .filter(vo -> vo != null && StringUtils.hasText(vo.getContent()))
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("Redis 记忆读取失败（已降级）, sessionId={}", sessionId, e);
             return Collections.emptyList();
         }
-        return rawList.stream()
-                .map(this::parseMemoryPayload)
-                .filter(vo -> vo != null && StringUtils.hasText(vo.getContent()))
-                .collect(Collectors.toList());
     }
 
     /**

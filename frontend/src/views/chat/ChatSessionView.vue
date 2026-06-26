@@ -33,143 +33,143 @@
 
     <!-- ====== 主聊天区域（深度分析三栏 / 普通双栏） ====== -->
     <div
-      class="main-chat"
-      :class="{ 'with-preview': previewVisible && !workspaceMode, 'workspace-mode': workspaceMode }"
-      ref="workspaceRef"
+        class="main-chat"
+        :class="{ 'with-preview': previewVisible && !workspaceMode, 'workspace-mode': workspaceMode }"
+        ref="workspaceRef"
     >
       <div
-        class="col-chat"
-        :class="{ 'col-chat-fixed': workspaceMode }"
-        :style="workspaceMode ? { width: `${columnWidths.chat}px` } : undefined"
+          class="col-chat"
+          :class="{ 'col-chat-fixed': workspaceMode }"
+          :style="workspaceMode ? { width: `${columnWidths.chat}px` } : undefined"
       >
-      <!-- 消息列表 -->
-      <div class="msg-list" ref="msgListRef">
-        <div v-if="loadingHistory" class="loading-tip">加载中...</div>
+        <!-- 消息列表 -->
+        <div class="msg-list" ref="msgListRef">
+          <div v-if="loadingHistory" class="loading-tip">加载中...</div>
 
-        <template v-for="msg in msgList" :key="msg.id">
-          <div
-              class="msg-row"
-              :class="{ 'msg-selected': selectedMsgIds.has(msg.id) }"
-          >
-            <!-- 多选复选框 -->
+          <template v-for="msg in msgList" :key="msg.id">
             <div
-                v-if="selectMode"
-                class="msg-checkbox"
-                @click.stop="toggleMessageSelect(msg.id)"
+                class="msg-row"
+                :class="{ 'msg-selected': selectedMsgIds.has(msg.id) }"
             >
-              <div class="checkbox-circle" :class="{ checked: selectedMsgIds.has(msg.id) }">
-                <svg v-if="selectedMsgIds.has(msg.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
+              <!-- 多选复选框 -->
+              <div
+                  v-if="selectMode"
+                  class="msg-checkbox"
+                  @click.stop="toggleMessageSelect(msg.id)"
+              >
+                <div class="checkbox-circle" :class="{ checked: selectedMsgIds.has(msg.id) }">
+                  <svg v-if="selectedMsgIds.has(msg.id)" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
               </div>
-            </div>
 
-            <!-- 用户消息 -->
-            <ChatMessage
-                v-if="msg.messageType === 'user'"
-                class="msg-body"
-                :msg="msg"
-                @resend="handleResend"
-                @delete="handleDeleteMessage(msg.id)"
-            />
-
-            <!-- AI 消息 -->
-            <div
-                v-else
-                class="ai-msg-selectable msg-body"
-                :class="{ 'preview-active': activePreviewMsgId === msg.id || (activePreviewMsgId == null && isLastAiMsg(msg.id)) }"
-                @click="!selectMode && selectPreview(msg.id)"
-                title="点击在右侧预览面板查看此代码"
-            >
-              <AiStreamMessage
-                  :content="msg.content"
-                  :is-streaming="false"
-                  @retry="handleRetryAi(msg)"
+              <!-- 用户消息 -->
+              <ChatMessage
+                  v-if="msg.messageType === 'user'"
+                  class="msg-body"
+                  :msg="msg"
+                  @resend="handleResend"
                   @delete="handleDeleteMessage(msg.id)"
               />
+
+              <!-- AI 消息 -->
+              <div
+                  v-else
+                  class="ai-msg-selectable msg-body"
+                  :class="{ 'preview-active': activePreviewMsgId === msg.id || (activePreviewMsgId == null && isLastAiMsg(msg.id)) }"
+                  @click="!selectMode && selectPreview(msg.id)"
+                  title="点击在右侧预览面板查看此代码"
+              >
+                <AiStreamMessage
+                    :content="msg.content"
+                    :is-streaming="false"
+                    @retry="handleRetryAi(msg)"
+                    @delete="handleDeleteMessage(msg.id)"
+                />
+              </div>
+            </div>
+          </template>
+
+          <!-- 流式生成中的 AI 消息 -->
+          <AiStreamMessage
+              v-if="streamingContent"
+              :content="streamingContent"
+              :is-streaming="true"
+          />
+
+          <!-- 思考中（还没收到文字） -->
+          <AiStreamMessage
+              v-if="generating && !streamingContent"
+              content=""
+              :thinking="true"
+              :is-streaming="true"
+          />
+
+          <div v-if="generatingError" class="error-tip">
+            {{ generatingError }}
+            <a-button size="small" @click="retryLast()">重试</a-button>
+          </div>
+
+          <!-- 回到底部按钮 — sticky 定位，始终在消息列表可视区底部中央 -->
+          <transition name="scroll-btn-fade">
+            <button
+                v-show="showScrollToBottom"
+                class="scroll-to-bottom-btn"
+                @click="scrollToBottomSmooth"
+                title="回到底部"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          </transition>
+        </div>
+
+        <!-- 多选删除底部操作栏 -->
+        <transition name="batch-bar-fade">
+          <div v-if="selectMode" class="batch-action-bar">
+            <span class="batch-count">已选 {{ selectedMsgIds.size }} 条</span>
+            <div class="batch-right">
+              <button
+                  class="batch-del-btn"
+                  :disabled="selectedMsgIds.size === 0"
+                  @click="batchDeleteMessages"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span>删除</span>
+              </button>
+              <button class="batch-cancel-btn" @click="cancelSelectMode">取消</button>
             </div>
           </div>
-        </template>
-
-        <!-- 流式生成中的 AI 消息 -->
-        <AiStreamMessage
-            v-if="streamingContent"
-            :content="streamingContent"
-            :is-streaming="true"
-        />
-
-        <!-- 思考中（还没收到文字） -->
-        <AiStreamMessage
-            v-if="generating && !streamingContent"
-            content=""
-            :thinking="true"
-            :is-streaming="true"
-        />
-
-        <div v-if="generatingError" class="error-tip">
-          {{ generatingError }}
-          <a-button size="small" @click="retryLast()">重试</a-button>
-        </div>
-
-        <!-- 回到底部按钮 — sticky 定位，始终在消息列表可视区底部中央 -->
-        <transition name="scroll-btn-fade">
-          <button
-              v-show="showScrollToBottom"
-              class="scroll-to-bottom-btn"
-              @click="scrollToBottomSmooth"
-              title="回到底部"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </button>
         </transition>
-      </div>
 
-      <!-- 多选删除底部操作栏 -->
-      <transition name="batch-bar-fade">
-        <div v-if="selectMode" class="batch-action-bar">
-          <span class="batch-count">已选 {{ selectedMsgIds.size }} 条</span>
-          <div class="batch-right">
-            <button
-                class="batch-del-btn"
-                :disabled="selectedMsgIds.size === 0"
-                @click="batchDeleteMessages"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-              <span>删除</span>
-            </button>
-            <button class="batch-cancel-btn" @click="cancelSelectMode">取消</button>
-          </div>
+        <!-- 停止生成按钮行 -->
+        <div v-if="generating" class="action-row">
+          <button class="stop-btn" @click="stopGeneration">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="2" />
+            </svg>
+            <span>停止生成</span>
+          </button>
         </div>
-      </transition>
 
-      <!-- 停止生成按钮行 -->
-      <div v-if="generating" class="action-row">
-        <button class="stop-btn" @click="stopGeneration">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="4" y="4" width="16" height="16" rx="2" />
-          </svg>
-          <span>停止生成</span>
-        </button>
-      </div>
-
-      <!-- 底部输入 -->
-      <div class="input-wrap">
-        <ChatInput ref="chatInputRef" compact @send="handleSend" :is-home="false" />
-      </div>
+        <!-- 底部输入 -->
+        <div class="input-wrap">
+          <ChatInput ref="chatInputRef" compact @send="handleSend" :is-home="false" />
+        </div>
       </div>
 
       <template v-if="workspaceMode">
         <ColumnResizer @start="beginResize(0, $event)" />
         <DeepWorkspace
-          :files="workspaceFiles"
-          :generating="generating"
-          :tree-width="columnWidths.tree"
-          @resize-tree-start="beginResize(1, $event)"
+            :files="workspaceFiles"
+            :generating="generating"
+            :tree-width="columnWidths.tree"
+            @resize-tree-start="beginResize(1, $event)"
         />
       </template>
     </div>
@@ -184,6 +184,18 @@
         @resize-start="startResize"
         @toggle="togglePreview"
     />
+
+    <!-- 删除消息确认弹窗 -->
+    <div v-if="showDeleteMsgConfirm" class="modal-mask" @click.self="cancelDeleteMsgConfirm">
+      <div class="modal-box delete-msg-modal">
+        <h3 class="modal-title">确定删除消息？</h3>
+        <p class="modal-desc">已选 {{ selectedMsgIds.size }} 条消息，删除后将不可恢复。</p>
+        <div class="modal-btn-group">
+          <button class="btn-cancel" @click="cancelDeleteMsgConfirm">取消</button>
+          <button class="btn-delete" @click="confirmBatchDelete">删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -207,6 +219,9 @@ import { useColumnResize } from '@/composables/useColumnResize'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
 import type { CodeFile, WorkflowResult, WorkflowStepEvent, WorkflowTask } from '@/types/codegen'
 
+// ========== 修复TS报错：定义格式字面量联合类型 ==========
+type GenerateFormat = "HTML" | "VUE" | "MULTI_FILE" | "WORKFLOW" | "GENERAL"
+
 const route = useRoute()
 const router = useRouter()
 
@@ -221,7 +236,8 @@ const streamingContent = ref('')
 const generatingError = ref('')
 const lastPrompt = ref('')
 const lastMode = ref<'fast' | 'deep'>('fast')
-const lastFormat = ref('HTML')
+// 约束为字面量类型，修复TS2322
+const lastFormat = ref<GenerateFormat>('HTML')
 const abortController = ref<AbortController | null>(null)
 const previewVisible = ref(false)
 const collapsedPreview = ref(false)
@@ -229,10 +245,10 @@ const workspaceMode = ref(false)
 const workspaceFiles = ref<CodeFile[]>([])
 const workspaceRef = ref<HTMLElement | null>(null)
 const { widths: columnWidths, beginResize } = useColumnResize(
-  () => workspaceRef.value,
-  { chat: 360, tree: 240 },
-  { chat: 280, tree: 180 },
-  320,
+    () => workspaceRef.value,
+    { chat: 360, tree: 240 },
+    { chat: 280, tree: 180 },
+    320,
 )
 const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
 const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
@@ -245,6 +261,7 @@ const showScrollToBottom = ref(false)
 // ========== 多选删除 ==========
 const selectMode = ref(false)
 const selectedMsgIds = ref(new Set<number>())
+const showDeleteMsgConfirm = ref(false)
 
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
@@ -329,7 +346,8 @@ onMounted(async () => {
     const prompt = route.query.prompt as string
     const mode = (route.query.mode as string) || 'fast'
     const output = (route.query.output as string) || 'stream'
-    const format = (route.query.format as string) || 'HTML'
+    // 类型断言修复TS报错
+    const format = (route.query.format || 'HTML') as GenerateFormat
     if (prompt && msgList.value.length <= 1) {
       lastPrompt.value = prompt
       lastMode.value = mode as 'fast' | 'deep'
@@ -425,7 +443,7 @@ async function handleRenameSession(sessionId: number, title: string) {
 }
 
 // ========== 发送消息 ==========
-async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: string }) {
+async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: GenerateFormat }) {
   if (!activeSessionId.value || generating.value) return
 
   // 1. 保存用户消息
@@ -461,9 +479,44 @@ async function handleResend(content: string) {
   await triggerAiGenerate(content, lastMode.value, 'stream', lastFormat.value)
 }
 
-function handleRetryAi(_msg: ChatMessageType) {
-  if (!lastPrompt.value) return
-  handleResend(lastPrompt.value)
+/** 重新生成：找到该 AI 消息对应的原始用户指令，删除整批 AI 回复后重新生成 */
+async function handleRetryAi(aiMsg: ChatMessageType) {
+  if (generating.value) return
+
+  // 1. 向前查找该 AI 消息对应的用户消息（父指令）
+  const aiIndex = msgList.value.findIndex(m => m.id === aiMsg.id)
+  if (aiIndex < 0) return
+
+  let parentUserMsg: ChatMessageType | null = null
+  for (let i = aiIndex - 1; i >= 0; i--) {
+    if (msgList.value[i].messageType === 'user') {
+      parentUserMsg = msgList.value[i]
+      break
+    }
+  }
+  if (!parentUserMsg) return
+
+  // 2. 找到该用户消息之后的所有连续 AI 消息（属于同一批次）
+  const userIndex = msgList.value.findIndex(m => m.id === parentUserMsg!.id)
+  const batchAiMsgIds: number[] = []
+  for (let i = userIndex + 1; i < msgList.value.length; i++) {
+    if (msgList.value[i].messageType === 'ai') {
+      batchAiMsgIds.push(msgList.value[i].id)
+    } else {
+      break
+    }
+  }
+
+  // 3. 删除整批 AI 消息（后端 + 本地）
+  try {
+    await Promise.allSettled(batchAiMsgIds.map(id => deleteMessage(id)))
+  } catch { /* ignore */ }
+  msgList.value = msgList.value.filter(m => !batchAiMsgIds.includes(m.id))
+
+  // 4. 用原始用户指令重新生成
+  generatingError.value = ''
+  lastPrompt.value = parentUserMsg.content
+  await triggerAiGenerate(parentUserMsg.content, lastMode.value, 'stream', lastFormat.value)
 }
 
 // ========== AI 生成核心 ==========
@@ -482,7 +535,7 @@ function selectPreview(msgId: number) {
   activePreviewMsgId.value = msgId
 }
 
-async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format = 'HTML') {
+async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML') {
   if (!activeSessionId.value) return
   generating.value = true
   streamingContent.value = ''
@@ -562,8 +615,7 @@ function startResize(e: MouseEvent) {
 
   const onMove = (ev: MouseEvent) => {
     const delta = startX - ev.clientX
-    const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
-    previewWidth.value = newWidth
+    previewWidth.value = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
   }
 
   const onUp = () => cleanup()
@@ -615,7 +667,7 @@ async function stopGeneration() {
 /**
  * 快速生成模式：流式调用 /api/codegen/stream
  */
-async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML', signal?: AbortSignal) {
+async function runFastGenerate(sessionId: number, prompt: string, format: GenerateFormat = 'HTML', signal?: AbortSignal) {
   const response = await generateCodeStream({
     prompt,
     sessionId,
@@ -649,7 +701,7 @@ async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML
 /**
  * 快速生成 - 同步模式：一次性返回完整结果
  */
-async function runFastGenerateSync(sessionId: number, prompt: string, format = 'HTML') {
+async function runFastGenerateSync(sessionId: number, prompt: string, format: GenerateFormat = 'HTML') {
   streamingContent.value = '正在生成...'
 
   const res = await generateCode({
@@ -691,8 +743,8 @@ function appendWorkflowProgress(phaseText: string, event: WorkflowStepEvent): st
 }
 
 async function consumeWorkflowStream(
-  response: Response,
-  onEvent: (event: WorkflowStepEvent) => void,
+    response: Response,
+    onEvent: (event: WorkflowStepEvent) => void,
 ) {
   await readSseStream(response, (eventName, data) => {
     if (eventName !== 'workflow') return
@@ -859,12 +911,17 @@ function toggleMessageSelect(msgId: number) {
   selectedMsgIds.value = next
 }
 
-/** 批量删除已选消息 */
-async function batchDeleteMessages() {
+/** 批量删除已选消息 → 弹出确认框 */
+function batchDeleteMessages() {
+  if (selectedMsgIds.value.size === 0) return
+  showDeleteMsgConfirm.value = true
+}
+
+/** 确认删除 */
+async function confirmBatchDelete() {
   if (selectedMsgIds.value.size === 0) return
 
   const ids = Array.from(selectedMsgIds.value)
-
   try {
     const results = await Promise.allSettled(ids.map(id => deleteMessage(id)))
     const failed = results.filter(r => r.status === 'rejected').length
@@ -879,7 +936,13 @@ async function batchDeleteMessages() {
   } catch {
     message.error('删除失败')
   }
+  showDeleteMsgConfirm.value = false
   cancelSelectMode()
+}
+
+/** 取消删除确认 */
+function cancelDeleteMsgConfirm() {
+  showDeleteMsgConfirm.value = false
 }
 
 function cancelSelectMode() {
@@ -1101,8 +1164,6 @@ function cancelSelectMode() {
   color: #ef4444;
 }
 
-
-
 /* 底部输入 */
 .input-wrap {
   flex-shrink: 0;
@@ -1277,4 +1338,51 @@ function cancelSelectMode() {
   transform: translateY(10px);
 }
 
+/* ====== 删除确认弹窗 ====== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.modal-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+}
+.delete-msg-modal {
+  width: 360px;
+  text-align: center;
+}
+.modal-title {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.modal-desc {
+  color: #666;
+  margin: 0 0 24px;
+}
+.modal-btn-group {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn-cancel {
+  padding: 8px 24px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.btn-delete {
+  padding: 8px 24px;
+  background-color: #f5222d;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
 </style>
