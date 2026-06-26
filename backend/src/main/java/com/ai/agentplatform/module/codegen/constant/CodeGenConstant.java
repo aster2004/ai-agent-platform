@@ -6,6 +6,7 @@ package com.ai.agentplatform.module.codegen.constant;
 public class CodeGenConstant {
     // SSE 事件名称常量
     public static final String SSE_EVENT_CODE_CHUNK = "code_chunk";
+    public static final String SSE_EVENT_FILE_CREATED = "file_created";
     public static final String SSE_EVENT_FINISH = "finish";
     public static final String SSE_EVENT_ERROR = "error";
 
@@ -26,6 +27,8 @@ public class CodeGenConstant {
     public static final String GENERATE_TYPE_VUE = "VUE";
     public static final String GENERATE_TYPE_MULTI_FILE = "MULTI_FILE";
     public static final String GENERATE_TYPE_WORKFLOW = "WORKFLOW";
+    // 通用模式：不限制格式，AI 通过 createFile 工具自主决定文件结构
+    public static final String GENERATE_TYPE_GENERAL = "GENERAL";
 
     // SSE 超时时间（3分钟）
     public static final long SSE_TIMEOUT_MS = 3 * 60 * 1000L;
