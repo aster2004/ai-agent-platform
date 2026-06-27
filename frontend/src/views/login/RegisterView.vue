@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="login-page">
     <a-card title="注册" class="login-card">
       <a-form :model="form" @finish="handleRegister">
@@ -49,9 +49,11 @@ import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { PhoneOutlined, MailOutlined, LockOutlined, TrophyOutlined, UserOutlined } from '@ant-design/icons-vue'
-import { register } from '@/api/user'
+import { register, login } from '@/api/user'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
 const loading = ref(false)
 const registerType = ref('phone')
 const form = reactive({ username: '', phone: '', email: '', password: '', nickname: '' })
@@ -84,8 +86,10 @@ async function handleRegister() {
       nickname: form.nickname || undefined,
     }
     await register(data)
-    message.success('注册成功，请登录')
-    router.push('/login')
+    const loginRes = await login({ username: form.username, password: form.password })
+    userStore.setUser(loginRes.data)
+    message.success('注册成功')
+    router.push('/chat')
   } catch (e: any) {
     message.error(e.message || '注册失败')
   } finally {

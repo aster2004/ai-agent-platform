@@ -42,7 +42,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import AppCardCover from '@/components/app/AppCardCover.vue'
-import { getFeaturedApps } from '@/api/app'
+import { getFeaturedApps, visitApp } from '@/api/app'
 import type { AppVO } from '@/types/app'
 
 const router = useRouter()
@@ -58,8 +58,13 @@ function resolveCreatorName(app: AppVO) {
   return app.creatorName?.trim() || `用户 #${app.userId}`
 }
 
-function openAppDeploy(app: AppVO) {
-  router.push(`/app/${app.id}/deploy`)
+async function openAppDeploy(app: AppVO) {
+  try {
+    await visitApp(app.id)
+  } catch (e) {
+  } finally {
+    router.push(`/app/${app.id}/deploy`)
+  }
 }
 
 async function loadFeatured() {

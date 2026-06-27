@@ -14,6 +14,7 @@ import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
 import com.ai.agentplatform.module.codegen.workflow.repository.CodeGenerateRepository;
 import com.ai.agentplatform.module.user.entity.User;
 import com.ai.agentplatform.module.user.repository.UserRepository;
+import com.ai.agentplatform.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -40,6 +41,7 @@ public class AppService {
     private final CodeGenerateRepository codeGenerateRepository;
     private final ChatSessionRepository chatSessionRepository;
     private final AppCoverAutoGenerateService appCoverAutoGenerateService;
+    private final UserService userService;
 
     @Transactional
     public AppVO create(AppCreateRequest request, Long userId) {
@@ -49,7 +51,10 @@ public class AppService {
         app.setUserId(userId);
         app.setStatus(STATUS_NORMAL);
         app.setIsFeatured(0);
-        return AppVO.from(appRepository.save(app));
+        App savedApp = appRepository.save(app);
+        userService.addPointsWithDailyLimit(userId, 20, UserService.POINT_TYPE_APP_CREATE,
+                "创建应用：" + request.getAppName(), 100, savedApp.getId(), "APP");
+        return AppVO.from(savedApp);
     }
 
     public Page<AppVO> listByUser(Long userId, int page, int size) {
@@ -67,6 +72,32 @@ public class AppService {
     public List<AppVO> listFeatured() {
         List<App> apps = appRepository.findByIsFeaturedAndStatusOrderByCreateTimeDesc(1, STATUS_NORMAL);
         return enrichListWithCreatorName(apps);
+    }
+
+    @Transactional
+    public void recordVisit(Long appId, Long visitorUserId) {
+        App app = appRepository.findById(appId)
+                .orElseThrow(() -> new BusinessException("应用不存在"));
+        if (app.getUserId().equals(visitorUserId)) {
+            return;
+        }
+        if (app.getIsFeatured() == 1) {
+            userService.addPointsWithDailyLimit(app.getUserId(), 1, UserService.POINT_TYPE_APP_VISIT,
+                    "应用" + app.getAppName() + "被访问", 50, visitorUserId, "VISITOR");
+        }
+    }
+
+    @Transactional
+    public void recordDeploy(Long appId, Long deployerUserId) {
+        App app = appRepository.findById(appId)
+                .orElseThrow(() -> new BusinessException("应用不存在"));
+        if (app.getUserId().equals(deployerUserId)) {
+            return;
+        }
+        if (app.getIsFeatured() == 1) {
+            userService.addPointsWithDailyLimit(app.getUserId(), 5, UserService.POINT_TYPE_APP_FAVORITE,
+                    "应用" + app.getAppName() + "被部署", 50, deployerUserId, "DEPLOYER");
+        }
     }
 
     public AppVO getById(Long id) {
@@ -133,8 +164,14 @@ public class AppService {
         if (STATUS_OFFLINE.equals(app.getStatus())) {
             throw new BusinessException("已下架应用不能设为精选");
         }
+        boolean wasFeatured = app.getIsFeatured() == 1;
         app.setIsFeatured(featured ? 1 : 0);
-        return AppVO.from(appRepository.save(app));
+        App savedApp = appRepository.save(app);
+        if (featured && !wasFeatured) {
+            userService.addPointsWithDailyLimit(app.getUserId(), 50, UserService.POINT_TYPE_APP_FEATURED,
+                    "应用" + app.getAppName() + "被设为精选", 50);
+        }
+        return AppVO.from(savedApp);
     }
 
     @Transactional

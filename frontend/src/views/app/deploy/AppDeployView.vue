@@ -131,6 +131,7 @@ import {
   getAppPreview,
   getDeployModes,
 } from '@/api/appDeploy'
+import { favoriteApp } from '@/api/app'
 import {
   calcPreviewScale,
   dataUrlToBlob,
@@ -138,8 +139,10 @@ import {
   requestPreviewCoverCapture,
 } from '@/utils/previewCapture'
 import type { DeployModeCode, DeployModeVO } from '@/types/appDeploy'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const userStore = useUserStore()
 const appId = ref<number | null>(null)
 const appName = ref('')
 const previewUrl = ref('')
@@ -265,13 +268,19 @@ async function handleDeploy() {
   deployLoading.value = true
   try {
     const res = await deployApp(appId.value, deployMode.value)
-    deployUrl.value = resolveAssetUrl(res.data.deployUrl)
-    deployModeLabel.value = res.data.deployModeLabel || ''
-    if (res.data.deployMode) {
-      deployMode.value = res.data.deployMode as DeployModeCode
+    const deployResult = res.data.deployResult || res.data
+    deployUrl.value = resolveAssetUrl(deployResult.deployUrl)
+    deployModeLabel.value = deployResult.deployModeLabel || ''
+    if (deployResult.deployMode) {
+      deployMode.value = deployResult.deployMode as DeployModeCode
     }
     hasDeployed.value = true
-    message.success(res.data.message || '部署成功')
+    if (res.data.pointsAdded && res.data.pointsAdded > 0) {
+      userStore.addPoints(res.data.pointsAdded)
+      message.success(`部署成功，获得 ${res.data.pointsAdded} 积分`)
+    } else {
+      message.success(deployResult.message || '部署成功')
+    }
   } catch (e: unknown) {
     message.error(e instanceof Error ? e.message : '部署失败')
   } finally {
@@ -372,7 +381,31 @@ function handleDownload() {
     message.warning('请输入应用 ID')
     return
   }
-  window.open(downloadAppSource(appId.value), '_blank')
+  fetch(downloadAppSource(appId.value), {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`
+    }
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('下载失败')
+    }
+    return response.blob()
+  })
+  .then(blob => {
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `app-${appId.value}-source.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  })
+  .catch(() => {
+    message.error('下载失败，请检查权限')
+  })
 }
 
 async function copyShareLink() {

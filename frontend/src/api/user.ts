@@ -63,3 +63,25 @@ export function getNewbieTasks() {
     earnedPoints: number
   }>>('/api/user/newbie-tasks')
 }
+
+export interface PointsLogItem {
+  id: number
+  userId: number
+  points: number
+  type: string
+  description: string
+  recordDate: string
+  createTime: string
+}
+
+export function getPointsDetail(startDate?: string, endDate?: string) {
+  return request.get<any, Result<Record<string, PointsLogItem[]>>>('/api/user/points/detail', {
+    params: { startDate, endDate }
+  })
+}
+
+export function getPointsByDate(date: string) {
+  return request.get<any, Result<{ logs: PointsLogItem[]; total: number; date: string }>>('/api/user/points/by-date', {
+    params: { date }
+  })
+}

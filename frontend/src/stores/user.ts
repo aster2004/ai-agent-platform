@@ -81,5 +81,15 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  return { token, userId, username, nickname, avatar, phone, email, role, points, level, setUser, logout, isLoggedIn, isAdmin, updateProfile }
+  function addPoints(amount: number) {
+    points.value += amount
+    localStorage.setItem('points', String(points.value))
+  }
+
+  function updatePoints(newPoints: number) {
+    points.value = newPoints
+    localStorage.setItem('points', String(newPoints))
+  }
+
+  return { token, userId, username, nickname, avatar, phone, email, role, points, level, setUser, logout, isLoggedIn, isAdmin, updateProfile, addPoints, updatePoints }
 })

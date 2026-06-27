@@ -55,3 +55,11 @@ export function uploadAppCover(file: File) {
   formData.append('file', file)
   return request.post<any, Result<string>>('/api/app/upload/cover', formData)
 }
+
+export function visitApp(id: number) {
+  return request.post<any, Result<void>>(`/api/app/${id}/visit`)
+}
+
+export function favoriteApp(id: number) {
+  return request.post<any, Result<void>>(`/api/app/${id}/favorite`)
+}
