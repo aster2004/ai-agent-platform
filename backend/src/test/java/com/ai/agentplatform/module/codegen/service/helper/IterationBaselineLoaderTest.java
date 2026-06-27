@@ -31,6 +31,7 @@ class IterationBaselineLoaderTest {
 
     @Test
     void prefersAppCodeWhenAvailable() {
+        when(appSyncHelper.resolveAppIdForSession(10L, 5L)).thenReturn(5L);
         when(appSyncHelper.getAppCode(5L)).thenReturn("<html><body>日历</body></html>");
 
         String baseline = loader.load(10L, 5L);
@@ -41,6 +42,7 @@ class IterationBaselineLoaderTest {
 
     @Test
     void fallsBackToCodeGenerateRecord() {
+        when(appSyncHelper.resolveAppIdForSession(10L, null)).thenReturn(null);
         CodeGenerate record = new CodeGenerate();
         record.setId(99L);
         record.setCodeContent("[{\"path\":\"index.html\",\"content\":\"<html>cal</html>\"}]");

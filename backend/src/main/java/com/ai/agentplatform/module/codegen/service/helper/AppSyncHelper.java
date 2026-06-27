@@ -3,6 +3,11 @@ package com.ai.agentplatform.module.codegen.service.helper;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.ai.agentplatform.module.chat.entity.ChatSession;
+import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
+import com.ai.agentplatform.module.codegen.constant.CodeGenConstant;
+import com.ai.agentplatform.module.codegen.entity.CodeGenerate;
+import com.ai.agentplatform.module.codegen.mapper.CodeGenerateMapper;
 import com.ai.agentplatform.module.codegen.workflow.state.CodeFile;
 import jakarta.annotation.Resource;
 import lombok.Data;
@@ -33,6 +38,12 @@ public class AppSyncHelper {
     @Resource
     private RestTemplate codeGenRestTemplate;
 
+    @Resource
+    private ChatSessionRepository chatSessionRepository;
+
+    @Resource
+    private CodeGenerateMapper codeGenerateMapper;
+
     /** 成员2 创建应用接口路径 */
     private static final String APP_CREATE_URL = "/api/app";
 
@@ -40,19 +51,60 @@ public class AppSyncHelper {
     private static final String APP_CODE_UPDATE_URL = "/api/app/{id}/code";
 
     /**
-     * 生成成功后创建应用并写入代码。
-     * 若已有 appId（重新生成场景）则复用，否则 POST /api/app 新建。
+     * 生成成功后创建/更新应用并写入代码。
+     * 同一会话内多轮生成复用同一 appId（一个对话一个应用入口）。
      *
      * @return 最终关联的应用 ID，创建失败时返回 null
      */
-    public Long persistGeneratedApp(Long existingAppId, String appName, String prompt, String fullCode) {
-        Long appId = resolveOrCreateApp(existingAppId, appName, prompt);
+    public Long persistGeneratedApp(Long sessionId, Long requestAppId, String appName, String prompt, String fullCode) {
+        Long resolvedAppId = resolveAppIdForSession(sessionId, requestAppId);
+        Long appId = resolveOrCreateApp(resolvedAppId, appName, prompt);
         if (appId == null) {
-            log.error("[应用同步] 无法创建或解析 appId，跳过写入代码");
+            log.error("[应用同步] 无法创建或解析 appId，跳过写入代码, sessionId={}", sessionId);
             return null;
         }
         syncCodeToApp(appId, fullCode);
+        bindSessionToApp(sessionId, appId);
         return appId;
+    }
+
+    /**
+     * 解析会话应对应的应用 ID。
+     * 优先级：请求 appId → chat_session.app_id → 该会话最近一条成功生成记录。
+     */
+    public Long resolveAppIdForSession(Long sessionId, Long requestAppId) {
+        if (requestAppId != null && requestAppId > 0) {
+            return requestAppId;
+        }
+        if (sessionId == null) {
+            return null;
+        }
+        ChatSession session = chatSessionRepository.findById(sessionId).orElse(null);
+        if (session != null && session.getAppId() != null && session.getAppId() > 0) {
+            return session.getAppId();
+        }
+        CodeGenerate latest = codeGenerateMapper.selectLatestSuccessBySessionId(sessionId);
+        if (latest != null && latest.getAppId() != null && latest.getAppId() > CodeGenConstant.UNASSIGNED_APP_ID) {
+            return latest.getAppId();
+        }
+        return null;
+    }
+
+    /**
+     * 将会话绑定到应用，保证后续同会话生成复用同一 app。
+     */
+    public void bindSessionToApp(Long sessionId, Long appId) {
+        if (sessionId == null || appId == null || appId <= 0) {
+            return;
+        }
+        chatSessionRepository.findById(sessionId).ifPresent(session -> {
+            if (appId.equals(session.getAppId())) {
+                return;
+            }
+            session.setAppId(appId);
+            chatSessionRepository.save(session);
+            log.info("[应用绑定] sessionId={} -> appId={}", sessionId, appId);
+        });
     }
 
     /**

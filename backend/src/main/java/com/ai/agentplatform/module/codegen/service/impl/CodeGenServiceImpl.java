@@ -103,7 +103,7 @@ public class CodeGenServiceImpl implements CodeGenService {
             long costTime = System.currentTimeMillis() - startTime;
 
             Long appId = appSyncHelper.persistGeneratedApp(
-                    existingAppId, request.getAppName(), request.getPrompt(), fullResult);
+                    sessionId, existingAppId, request.getAppName(), request.getPrompt(), fullResult);
 
             CodeGenerate record = new CodeGenerate();
             record.setUserId(userId);
@@ -164,7 +164,7 @@ public class CodeGenServiceImpl implements CodeGenService {
             long costTime = System.currentTimeMillis() - startTime;
 
             Long appId = appSyncHelper.persistGeneratedApp(
-                    existingAppId, request.getAppName(), request.getPrompt(), filesJson);
+                    sessionId, existingAppId, request.getAppName(), request.getPrompt(), filesJson);
 
             CodeGenerate record = new CodeGenerate();
             record.setUserId(userId);
@@ -300,7 +300,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                                 String totalText = strategy.parseResult(aiRawText);
 
                                 Long appId = appSyncHelper.persistGeneratedApp(
-                                        existingAppId, request.getAppName(), request.getPrompt(), totalText);
+                                        sessionId, existingAppId, request.getAppName(), request.getPrompt(), totalText);
 
                                 CodeGenerate record = new CodeGenerate();
                                 record.setUserId(userId);
@@ -394,7 +394,7 @@ public class CodeGenServiceImpl implements CodeGenService {
             String filesJson = JSON.toJSONString(files);
 
             Long appId = appSyncHelper.persistGeneratedApp(
-                    existingAppId, request.getAppName(), request.getPrompt(), filesJson);
+                    sessionId, existingAppId, request.getAppName(), request.getPrompt(), filesJson);
 
             // 写入数据库记录
             CodeGenerate record = new CodeGenerate();
