@@ -40,15 +40,15 @@
         <h1 class="brand-title">AI 对话助手</h1>
       </div>
 
-      <p class="subtitle">可以问我任何问题，也可以帮你写代码</p>
+      <p class="subtitle">智能编程助手，帮你写代码、做页面设计</p>
 
       <!-- 代码生成预设卡片 -->
       <div class="feature-cards">
-        <div class="feature-card" @click="setQuickPrompt('帮我写一个带登录和注册功能的响应式HTML页面')">
+        <div class="feature-card" @click="setQuickPrompt('帮我设计一份专业的个人简历网页，包含个人信息、工作经历、技能特长、项目经验等模块，以HTML形式输出', 'HTML')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1677ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
           </svg>
-          <span>登录页面</span>
+          <span>简历设计</span>
         </div>
         <div class="feature-card" @click="setQuickPrompt('帮我写一个带增删改查功能的数据管理后台Vue工程')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#52c41a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -128,8 +128,8 @@ async function handleDeleteSession(delId: number) {
 }
 
 /** 点击预设卡片 → 自动创建会话并跳转对话页，快速生成+通用 */
-function setQuickPrompt(text: string) {
-  handleSend({ content: text, mode: 'fast', output: 'stream', format: 'MULTI_FILE' })
+function setQuickPrompt(text: string, format = 'MULTI_FILE') {
+  handleSend({ content: text, mode: 'fast', output: 'stream', format, model: 'deepseek' })
 }
 
 /** 发送消息 → 创建会话 → 跳到对话页 */

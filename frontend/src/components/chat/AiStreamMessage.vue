@@ -17,7 +17,7 @@
           <span v-if="isStreaming" class="streaming-badge-light">生成中</span>
           <!-- 完成 → 操作按钮 -->
           <template v-else>
-            <button class="icon-btn" title="复制代码" @click="handleCopyToClipboard">
+            <button class="icon-btn" title="复制代码" @click.stop="handleCopyToClipboard">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
@@ -28,14 +28,19 @@
               </svg>
               <span>{{ previewBtnLabel }}</span>
             </button>
-            <button v-if="showPreviewBtn" class="icon-btn" title="引用" @click="handleQuoteClick">
+            <button class="icon-btn" title="引用" @click.stop="handleQuoteClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M17 1l4 0l0 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4 0l0-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
               </svg>
             </button>
-            <button v-if="showPreviewBtn" class="icon-btn" title="放大查看" @click.stop="handlePreviewClick">
+            <button class="icon-btn" title="放大查看" @click.stop="handleEnlargeClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
+            <button class="icon-btn" title="下载代码" @click.stop="handleDownload">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
               </svg>
             </button>
           </template>
@@ -197,11 +202,16 @@ const isCodeContent = computed(() => {
 
 /** 提取后是否仍有可展示的代码正文（防止空白 code-card） */
 const hasRenderableCode = computed(() => {
+  // 流式阶段只要有内容就渲染
   if (props.isStreaming) {
-    const raw = props.content?.trim()
-    return !!raw
+    return !!props.content?.trim()
   }
-  return !!codeText.value.trim()
+  // 完成后：codeText 有内容则渲染；若被意外清空但原始内容有代码标记也渲染
+  if (codeText.value.trim()) return true
+  const raw = props.content?.trim() || ''
+  // 包含代码块标记或文件标题 → 保留代码卡片
+  if (raw.includes('```') || /^##\s+📁/.test(raw)) return true
+  return false
 })
 
 /** 根据文件路径扩展名获取显示标签 */
@@ -352,27 +362,25 @@ function handleDelete() {
 
 // ---- 预览按钮 ----
 
+/** 快速生成模式：仅 HTML 内容显示"运行"按钮（多文件/Vue 不显示） */
 const showPreviewBtn = computed(() => {
   if (!props.content || props.isStreaming) return false
   const code = codeText.value
   if (!code) return false
-  // HTML / Vue 代码可预览
-  if (/^<(!DOCTYPE|html|template)/i.test(code.trim())) return true
-  // 含代码块标记的内容
-  if (props.content.includes('```html') || props.content.includes('```vue')) return true
-  // 多文件格式
-  if (code.trim().startsWith('[') && code.includes('"path"')) return true
-  if (/^##\s+📁/.test(code)) return true
+  const raw = props.content
+  // 裸 HTML 开头（包括 codeText 提取后的纯代码）
+  if (/^<(!DOCTYPE|html)/i.test(code.trim())) return true
+  // ```html 代码块
+  if (raw.includes('```html')) return true
+  // DOCTYPE 或 <html 标签在内容中任意位置（AI 可能在前面加了说明文字）
+  if (/<!DOCTYPE\s+html/i.test(raw)) return true
+  if (/<html[\s>]/i.test(raw)) return true
+  // ## 📁 .html 文件标题
+  if (/^##\s+📁\s+.*\.html/i.test(raw)) return true
   return false
 })
 
-const previewBtnLabel = computed(() => {
-  const code = codeText.value.trim()
-  // HTML 可运行
-  if (/^<(!DOCTYPE|html)/i.test(code)) return '运行'
-  if (/^```html|```\s*\n\s*<(!DOCTYPE|html)/im.test(props.content)) return '运行'
-  return '预览'
-})
+const previewBtnLabel = computed(() => '运行')
 
 function handlePreviewClick() {
   emit('preview')
@@ -382,7 +390,6 @@ function handleQuoteClick() {
   const code = codeText.value
   if (!code) return
   emit('quote', code)
-  message.success('已引用到输入框')
 }
 
 function handleEnlargeClick() {
@@ -399,6 +406,44 @@ function handleCopyToClipboard() {
   }).catch(() => {
     message.error('复制失败')
   })
+}
+
+/** 下载代码为文件 */
+function handleDownload() {
+  const code = codeText.value
+  if (!code) return
+  // 先从 ## 📁 标题提取文件名
+  const headerMatch = props.content.match(/^##\s+📁\s+(\S+)/m)
+  const filename = headerMatch?.[1] || codeLabelToFilename(codeLangLabel.value)
+  const blob = new Blob([code], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  message.success(`已下载 ${filename}`)
+}
+
+/** 语言标签 → 默认文件名 */
+function codeLabelToFilename(label: string): string {
+  const map: Record<string, string> = {
+    HTML: 'index.html',
+    Vue: 'App.vue',
+    JavaScript: 'main.js',
+    TypeScript: 'main.ts',
+    'React JSX': 'App.jsx',
+    'React TSX': 'App.tsx',
+    CSS: 'style.css',
+    SCSS: 'style.scss',
+    Less: 'style.less',
+    JSON: 'data.json',
+    Python: 'main.py',
+    Java: 'Main.java',
+    Markdown: 'README.md',
+    XML: 'data.xml',
+  }
+  return map[label] || 'code.txt'
 }
 
 

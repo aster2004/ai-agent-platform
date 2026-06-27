@@ -65,7 +65,11 @@ export function normalizeAiContent(raw: string): string {
         return '```' + l + '\n' + code + '\n```'
     })
 
-    return result
+    // 清理首尾的 JSON 数组残留括号（AI 有时在代码块外首尾留下孤立的 [ 或 ]）
+    result = result.replace(/^\s*\[\s*\n+/, '').replace(/\n+\s*\]\s*$/, '')
+    result = result.trim()
+
+    return result || raw
 }
 
 /**

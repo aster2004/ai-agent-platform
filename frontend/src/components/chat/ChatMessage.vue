@@ -208,6 +208,7 @@ function confirmEdit() {
   line-height: 1.6;
   color: #1f2329;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .edit-area {

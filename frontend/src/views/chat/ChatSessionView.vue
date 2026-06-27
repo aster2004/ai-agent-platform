@@ -34,11 +34,12 @@
     <!-- ====== 主聊天区域（深度分析 / 快速生成均为：左对话 + 右预览） ====== -->
     <div
         class="main-chat"
-        :class="{ 'with-preview': previewVisible, 'deep-mode': deepMode && previewVisible }"
+        :class="{ 'with-preview': previewVisible && !deepMode, 'deep-mode': deepMode && previewVisible }"
     >
       <div
           class="col-chat"
           :class="{ 'col-chat-narrow': deepMode && previewVisible }"
+          :style="deepMode && previewVisible ? { flex: `0 0 ${chatWidth}px` } : {}"
       >
         <div v-if="fromAppManage" class="back-bar">
           <a-button type="link" class="back-btn" @click="goBackToAppManage">
@@ -78,13 +79,18 @@
                   @delete="handleDeleteMessage(msg.id)"
               />
 
-              <!-- AI 消息 -->
+              <!-- AI 消息：深度模式可点击切换预览；快速模式仅通过"运行"按钮触发 -->
               <div
                   v-else
-                  class="ai-msg-selectable msg-body"
-                  :class="{ 'preview-active': activePreviewMsgId === msg.id || (activePreviewMsgId == null && isLastAiMsg(msg.id)) }"
-                  @click="!selectMode && selectPreview(msg.id)"
-                  title="点击在右侧预览面板查看此代码"
+                  class="msg-body"
+                  :class="{
+                    'ai-msg-selectable': deepMode,
+                    'preview-active': deepMode
+                      ? (activePreviewMsgId === msg.id || (activePreviewMsgId == null && isLastAiMsg(msg.id)))
+                      : false
+                  }"
+                  @click="!selectMode && deepMode && selectPreview(msg.id)"
+                  :title="deepMode ? '点击预览' : ''"
               >
                 <AiStreamMessage
                     :content="msg.content"
@@ -92,6 +98,8 @@
                     @retry="handleRetryAi(msg)"
                     @delete="handleDeleteMessage(msg.id)"
                     @preview="openMessagePreview(msg.id)"
+                    @quote="handleQuoteCode"
+                    @enlarge="handleEnlargeCode"
                 />
               </div>
             </div>
@@ -169,10 +177,22 @@
         </div>
       </div>
 
+      <!-- ====== 深度分析三栏布局：聊天 | 文件树 | 预览 ====== -->
+      <template v-if="deepMode && previewVisible">
+        <ColumnResizer @start="startChatWorkspaceResize" />
+        <DeepWorkspace
+          class="deep-workspace-pane"
+          :files="workspaceFiles"
+          :generating="generating"
+          :tree-width="treeWidth"
+          @resize-tree-start="startTreeResize"
+        />
+      </template>
     </div>
 
-    <!-- ====== 右侧预览面板 ====== -->
+    <!-- ====== 右侧预览面板（仅快速生成模式） ====== -->
     <ChatPreviewPanel
+        v-if="!deepMode"
         :content="previewContent"
         :visible="previewVisible"
         :width="previewWidth"
@@ -182,6 +202,33 @@
         @toggle="togglePreview"
         @close="previewVisible = false"
     />
+
+    <!-- 放大查看代码弹窗（豆包风格：页面居中） -->
+    <div v-if="enlargedCode" class="enlarge-modal-mask" @click.self="closeEnlargeModal">
+      <div class="enlarge-modal-card">
+        <!-- 头部栏 -->
+        <div class="enlarge-modal-header">
+          <span class="enlarge-modal-lang">{{ detectCodeLang(enlargedCode) }}</span>
+          <div class="enlarge-modal-actions">
+            <button class="enlarge-btn" title="复制代码" @click="copyEnlargedCode">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <span>复制</span>
+            </button>
+            <button class="enlarge-btn enlarge-close-btn" title="关闭" @click="closeEnlargeModal">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <!-- 代码区 -->
+        <div class="enlarge-modal-body">
+          <pre class="enlarge-modal-code"><code v-html="enlargeHighlightedCode" /></pre>
+        </div>
+      </div>
+    </div>
 
     <!-- 删除消息确认弹窗 -->
     <div v-if="showDeleteMsgConfirm" class="modal-mask" @click.self="cancelDeleteMsgConfirm">
@@ -207,11 +254,15 @@ import ChatMessage from '@/components/chat/ChatMessage.vue'
 import AiStreamMessage from '@/components/chat/AiStreamMessage.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import ChatPreviewPanel from '@/components/chat/ChatPreviewPanel.vue'
+import DeepWorkspace from '@/components/chat/DeepWorkspace.vue'
+import ColumnResizer from '@/components/chat/ColumnResizer.vue'
 import { getSessionList, getHistoryMsg, saveChatMessage, saveAiMessage, deleteSession, createSession, deleteMessage, renameSession } from '@/api/chat'
 import { generateCodeStream, analyzeWorkflowStream, continueWorkflowStream, generateCode } from '@/api/codegen'
 import { readSseStream } from '@/utils/codegenStream'
 import { splitAiContent, parseContentToFiles } from '@/utils/splitMultiFile'
 import { formatCodeFilesToContent, formatPrdSummary, formatWorkflowLog, isRenderablePreviewProject } from '@/utils/formatCodeFiles'
+import { highlightCode } from '@/utils/syntaxHighlight'
+import { detectCodeLang } from '@/utils/formatCode'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
 import type { CodeFile, WorkflowResult, WorkflowStepEvent, WorkflowTask } from '@/types/codegen'
 
@@ -244,11 +295,19 @@ const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth 
 const getDeepPreviewWidth = () => Math.max(420, Math.round(window.innerWidth * 0.58))
 const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
 const previewWidth = ref(getDefaultPreviewWidth())
+/** 深度分析：聊天栏宽度（可拖拽），工作区弹性填充剩余空间 */
+const chatWidth = ref(380)
+/** 文件树宽度 */
+const treeWidth = ref(220)
 const isDragging = ref(false)
 const msgListRef = ref<HTMLDivElement | null>(null)
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const showScrollToBottom = ref(false)
 const fromAppManage = ref(false)
+/** 引用代码：用户点击 AI 气泡上的"引用"按钮时暂存，发送时附加到消息中 */
+const quotedCode = ref('')
+/** 放大查看的代码：独立于消息预览，点击"放大查看"时写入 */
+const enlargedCode = ref('')
 
 function goBackToAppManage() {
   router.push('/app')
@@ -318,6 +377,23 @@ function collectLatestAiBatch(): string | null {
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
+/** 判断内容是否为 HTML（快速生成模式下仅 HTML 可预览） */
+function isHtmlContent(content: string): boolean {
+  if (!content?.trim()) return false
+  const c = content.trim()
+  // 裸 HTML 开头
+  if (/^<(!DOCTYPE|html)/i.test(c)) return true
+  // 含 ```html 代码块
+  if (c.includes('```html')) return true
+  // ## 📁 .html 文件标题
+  if (/^##\s+📁\s+.*\.html/i.test(c)) return true
+  // HTML doctype 在内容中任意位置（AI 可能在前面加了说明文字）
+  if (/<!DOCTYPE\s+html/i.test(c)) return true
+  // 含 <html 标签
+  if (/<html[\s>]/i.test(c)) return true
+  return false
+}
+
 /** 当前会话已绑定的应用 ID（同一会话多轮生成复用） */
 function resolveCodegenAppId(): number | undefined {
   if (!activeSessionId.value) return undefined
@@ -326,16 +402,20 @@ function resolveCodegenAppId(): number | undefined {
   return appId != null && appId > 0 ? appId : undefined
 }
 
-/** 是否有可预览的内容（含 HTML/Vue/多文件代码块） */
+/** 快速生成模式：仅 HTML 可预览；深度分析模式：workspaceFiles 非空即可 */
 const hasPreviewContent = computed(() => {
   if (workspaceFiles.value.length > 0) return true
+  // 快速模式：仅 HTML 触发
+  if (!deepMode.value) {
+    const c = previewContent.value
+    if (!c) return false
+    return /```html\b|```\s*\n[^`]*<|<!DOCTYPE|<html/i.test(c)
+  }
+  // 深度模式保留完整检测
   const c = previewContent.value
   if (!c) return false
-  // HTML/Vue 代码块
   if (/```(html|vue)```|```\s*\n[^`]*<|<!DOCTYPE|<html|<template/i.test(c)) return true
-  // 多文件 ## 📁 格式（拆分后的消息批次）
   if (/##\s+📁/.test(c)) return true
-  // 多文件 JSON 数组
   if (c.trim().startsWith('[') && c.includes('"path"') && c.includes('"content"')) return true
   return false
 })
@@ -378,8 +458,8 @@ onMounted(async () => {
     // 清除 URL 中的 query 参数（保留干净路径）
     router.replace({ path: `/chat/session/${idParam}` })
 
-    // 检查历史消息中是否有 HTML 可预览
-    if (hasPreviewContent.value) {
+    // 深度分析模式：检查历史消息中是否有可预览内容
+    if (deepMode.value && hasPreviewContent.value) {
       previewVisible.value = true
     }
   }
@@ -440,6 +520,15 @@ function collectLatestCodeFileMessages(): string | null {
 
 /** 从历史消息恢复深度分析的多文件预览（刷新页面后仍可用） */
 function restoreDeepWorkspaceFromHistory() {
+  // 仅在深度分析会话中恢复（通过 PRD/工作流消息特征判断）
+  // 快速生成的 ## 📁 HTML 文件不应触发深度模式，避免左侧边栏消失 + 布局错乱
+  const hasDeepWorkflow = msgList.value.some(m =>
+    m.messageType === 'ai' && /^##\s+(📋|🔄)/.test(m.content?.trim())
+  )
+  if (!hasDeepWorkflow) {
+    workspaceFiles.value = []
+    return
+  }
   const codeBatch = collectLatestCodeFileMessages() || collectLatestAiBatch()
   if (!codeBatch) {
     workspaceFiles.value = []
@@ -497,8 +586,13 @@ async function handleRenameSession(sessionId: number, title: string) {
 }
 
 // ========== 发送消息 ==========
-async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: GenerateFormat }) {
+async function handleSend({ content, mode, output, format, model, quotedCode: refCode }: { content: string; mode: 'fast' | 'deep'; output: string; format?: GenerateFormat; model?: string; quotedCode?: string }) {
   if (!activeSessionId.value || generating.value) return
+
+  // 引用代码：格式化为 ChatMessage quoteRef 可解析的格式（豆包风格）
+  const fullContent = refCode
+    ? `参考以下代码：\n\`\`\`\n${refCode}\n\`\`\`\n\n${content}`
+    : content
 
   // 1. 保存用户消息
   generatingError.value = ''
@@ -506,7 +600,7 @@ async function handleSend({ content, mode, output, format }: { content: string; 
     sessionId: activeSessionId.value,
     appId: null,
     messageType: 'user',
-    content,
+    content: fullContent,
   }
   try {
     await saveChatMessage(params)
@@ -519,18 +613,22 @@ async function handleSend({ content, mode, output, format }: { content: string; 
     return
   }
 
+  // 清除引用代码
+  quotedCode.value = ''
+
   // 2. 触发 AI 生成
-  lastPrompt.value = content
+  lastPrompt.value = fullContent
   lastMode.value = mode
   lastFormat.value = format || 'HTML'
-  await triggerAiGenerate(content, mode, output, format || 'HTML')
+  await triggerAiGenerate(fullContent, mode, output, format || 'HTML', model)
 }
 
 async function handleResend(content: string) {
   if (!activeSessionId.value || generating.value) return
   generatingError.value = ''
   lastPrompt.value = content
-  await triggerAiGenerate(content, lastMode.value, 'stream', lastFormat.value)
+  const currentModel = chatInputRef.value?.getModel()
+  await triggerAiGenerate(content, lastMode.value, 'stream', lastFormat.value, currentModel)
 }
 
 /** 重新生成：找到该 AI 消息对应的原始用户指令，删除整批 AI 回复后重新生成 */
@@ -570,7 +668,8 @@ async function handleRetryAi(aiMsg: ChatMessageType) {
   // 4. 用原始用户指令重新生成
   generatingError.value = ''
   lastPrompt.value = parentUserMsg.content
-  await triggerAiGenerate(parentUserMsg.content, lastMode.value, 'stream', lastFormat.value)
+  const currentModel = chatInputRef.value?.getModel()
+  await triggerAiGenerate(parentUserMsg.content, lastMode.value, 'stream', lastFormat.value, currentModel)
 }
 
 // ========== AI 生成核心 ==========
@@ -590,18 +689,61 @@ function selectPreview(msgId: number) {
 }
 
 function openMessagePreview(msgId: number) {
-  activePreviewMsgId.value = msgId
-  // 深度分析多文件：保持 workspaceFiles，避免预览被清掉后误触空白窗
+  // 深度分析多文件：保持 workspaceFiles
   if (deepMode.value && workspaceFiles.value.length > 0) {
+    activePreviewMsgId.value = msgId
     previewVisible.value = true
     collapsedPreview.value = false
     return
   }
+  // 快速生成模式：仅 HTML 内容可打开预览
+  if (!deepMode.value) {
+    const msg = msgList.value.find(m => m.id === msgId)
+    if (!msg || !isHtmlContent(msg.content)) return
+    previewWidth.value = getDefaultPreviewWidth()
+  }
+  activePreviewMsgId.value = msgId
   previewVisible.value = true
   collapsedPreview.value = false
 }
 
-async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML') {
+/** 引用代码：将代码暂存并显示在输入框上方（豆包风格） */
+function handleQuoteCode(code: string) {
+  if (!code) return
+  quotedCode.value = code
+  chatInputRef.value?.setQuotedCode(code)
+  message.success('代码已引用到输入框')
+}
+
+/** 放大查看：页面居中弹窗展示代码（豆包风格） */
+function handleEnlargeCode(code: string) {
+  if (!code) return
+  enlargedCode.value = code
+}
+
+/** 关闭放大查看弹窗 */
+function closeEnlargeModal() {
+  enlargedCode.value = ''
+}
+
+/** 放大弹窗中语法高亮后的代码 */
+const enlargeHighlightedCode = computed(() => {
+  const code = enlargedCode.value
+  if (!code) return ''
+  return highlightCode(code, detectCodeLang(code))
+})
+
+/** 放大弹窗中复制代码 */
+async function copyEnlargedCode() {
+  try {
+    await navigator.clipboard.writeText(enlargedCode.value)
+    message.success('代码已复制')
+  } catch {
+    message.error('复制失败')
+  }
+}
+
+async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML', model?: string) {
   if (!activeSessionId.value) return
   generating.value = true
   streamingContent.value = ''
@@ -628,17 +770,18 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
     } else {
       deepMode.value = false
       workspaceFiles.value = []
-      previewVisible.value = true
+      // 快速生成：不自动弹预览，用户点击"运行"按钮才弹出
       previewWidth.value = getDefaultPreviewWidth()
       if (output === 'sync') {
-        await runFastGenerateSync(activeSessionId.value, prompt, format)
+        await runFastGenerateSync(activeSessionId.value, prompt, format, model)
       } else {
-        await runFastGenerate(activeSessionId.value, prompt, format, controller.signal)
+        await runFastGenerate(activeSessionId.value, prompt, format, controller.signal, model)
       }
-      // 生成完成后自动弹出预览（如果有 HTML 内容）
-      if (hasPreviewContent.value) {
-        previewVisible.value = true
-      }
+      // 重新断言快速模式状态（loadMessages 中的 restoreDeepWorkspaceFromHistory 可能恢复深度模式）
+      deepMode.value = false
+      previewVisible.value = false
+      workspaceFiles.value = []
+      showSidebar.value = true
     }
   } catch (e: any) {
     // 用户主动停止 → 不是错误，静默处理
@@ -705,9 +848,56 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-// 自动打开预览（生成完成后、检测到可预览内容时）
+/** 深度分析：拖拽调整聊天区宽度，工作区弹性填充剩余空间 */
+function startChatWorkspaceResize(e: MouseEvent) {
+  e.preventDefault()
+  document.body.style.userSelect = 'none'
+  const startX = e.clientX
+  const startWidth = chatWidth.value
+  // 工作区不超过 2/3 → 聊天区不少于 1/3（减去侧边栏）
+  const maxChat = Math.round(window.innerWidth * 0.5)
+  const minChat = 320
+  const onMove = (ev: MouseEvent) => {
+    const delta = ev.clientX - startX
+    chatWidth.value = Math.min(maxChat, Math.max(minChat, startWidth + delta))
+  }
+  const onUp = () => {
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+/** 深度分析：拖拽调整文件树与预览区之间的分割线 */
+function startTreeResize(e: MouseEvent) {
+  e.preventDefault()
+  document.body.style.userSelect = 'none'
+  const startX = e.clientX
+  const startWidth = treeWidth.value
+  // 获取工作区当前实际宽度
+  const workspaceEl = (e.target as HTMLElement).closest('.deep-workspace') as HTMLElement | null
+  const workspaceWidth = workspaceEl?.offsetWidth || window.innerWidth * 0.5
+  const maxWidth = Math.round(workspaceWidth * 0.45)
+  const minWidth = 140
+  const onMove = (ev: MouseEvent) => {
+    const delta = ev.clientX - startX
+    treeWidth.value = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
+  }
+  const onUp = () => {
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+// 深度分析模式自动打开预览；快速模式不自动弹出
 watch(hasPreviewContent, (val) => {
   if (generating.value) return
+  if (!deepMode.value) return
   if (val && !previewVisible.value && !collapsedPreview.value) {
     previewVisible.value = true
   }
@@ -730,8 +920,8 @@ async function stopGeneration() {
     try {
       await saveAiMessage(sessionId, null, partialContent)
       await loadMessages(sessionId)
-      // 停止后也检查是否有可预览内容
-      if (hasPreviewContent.value) {
+      // 深度分析模式停止后自动打开预览，快速模式不自动弹出
+      if (deepMode.value && hasPreviewContent.value) {
         previewVisible.value = true
       }
     } catch { /* ignore */ }
@@ -741,12 +931,13 @@ async function stopGeneration() {
 /**
  * 快速生成模式：流式调用 /api/codegen/stream
  */
-async function runFastGenerate(sessionId: number, prompt: string, format: GenerateFormat = 'HTML', signal?: AbortSignal) {
+async function runFastGenerate(sessionId: number, prompt: string, format: GenerateFormat = 'HTML', signal?: AbortSignal, model?: string) {
   const response = await generateCodeStream({
     prompt,
     sessionId,
     appId: resolveCodegenAppId(),
     generateType: format,
+    modelName: model || undefined,
   }, signal)
 
   let receivedContent = ''
@@ -776,7 +967,7 @@ async function runFastGenerate(sessionId: number, prompt: string, format: Genera
 /**
  * 快速生成 - 同步模式：一次性返回完整结果
  */
-async function runFastGenerateSync(sessionId: number, prompt: string, format: GenerateFormat = 'HTML') {
+async function runFastGenerateSync(sessionId: number, prompt: string, format: GenerateFormat = 'HTML', model?: string) {
   streamingContent.value = '正在生成...'
 
   const res = await generateCode({
@@ -784,6 +975,7 @@ async function runFastGenerateSync(sessionId: number, prompt: string, format: Ge
     sessionId,
     appId: resolveCodegenAppId(),
     generateType: format,
+    modelName: model || undefined,
   })
 
   const code = res.data?.codeContent
@@ -951,7 +1143,8 @@ async function retryLast() {
   if (!lastPrompt.value) return
   generatingError.value = ''
   if (!activeSessionId.value) return
-  await triggerAiGenerate(lastPrompt.value, lastMode.value, 'stream', lastFormat.value)
+  const currentModel = chatInputRef.value?.getModel()
+  await triggerAiGenerate(lastPrompt.value, lastMode.value, 'stream', lastFormat.value, currentModel)
 }
 
 // ========== 工具函数 ==========
@@ -1120,8 +1313,18 @@ function cancelSelectMode() {
   background: #fff;
 }
 
-.main-chat.deep-mode.with-preview {
-  flex: 0 0 auto;
+/* 深度分析：三栏布局，聊天区 row 排列 */
+.main-chat.deep-mode {
+  flex: 1;
+  flex-direction: row;
+}
+
+/* 深度分析工作区弹性填充，不超过 2/3 */
+.deep-workspace-pane {
+  flex: 1;
+  min-width: 500px;
+  max-width: 66.66vw;
+  overflow: hidden;
 }
 
 .col-chat.col-chat-narrow {
@@ -1447,6 +1650,120 @@ function cancelSelectMode() {
   opacity: 0;
   transform: translateY(10px);
 }
+
+/* ====== 放大查看弹窗（豆包风格：页面居中） ====== */
+.enlarge-modal-mask {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.enlarge-modal-card {
+  display: flex;
+  flex-direction: column;
+  width: 82vw;
+  max-width: 1100px;
+  height: 82vh;
+  max-height: 800px;
+  background: #1e1e2e;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.enlarge-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: #252536;
+  border-bottom: 1px solid #2a2a3d;
+  flex-shrink: 0;
+}
+
+.enlarge-modal-lang {
+  font-size: 13px;
+  font-weight: 600;
+  color: #8b8b9e;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.enlarge-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.enlarge-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border: 1px solid #3a3a55;
+  background: transparent;
+  color: #c8c8d8;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: all 0.15s;
+}
+
+.enlarge-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: #5a5a7a;
+  color: #e8e8f0;
+}
+
+.enlarge-close-btn {
+  padding: 6px 8px;
+  border: none;
+}
+
+.enlarge-close-btn:hover {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff6b6b;
+}
+
+.enlarge-modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px 22px;
+}
+
+.enlarge-modal-body::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.enlarge-modal-body::-webkit-scrollbar-thumb {
+  background: #3a3a55;
+  border-radius: 3px;
+}
+
+.enlarge-modal-code {
+  margin: 0;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', 'Monaco', monospace;
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre;
+  color: #e1e1ee;
+  tab-size: 2;
+}
+
+/* 语法高亮 token */
+.enlarge-modal-code :deep(.tk-keyword) { color: #c792ea; font-style: italic; }
+.enlarge-modal-code :deep(.tk-string)  { color: #c3e88d; }
+.enlarge-modal-code :deep(.tk-comment) { color: #676e95; font-style: italic; }
+.enlarge-modal-code :deep(.tk-tag)     { color: #82aaff; }
+.enlarge-modal-code :deep(.tk-fn)      { color: #82aaff; }
+.enlarge-modal-code :deep(.tk-num)     { color: #f78c6c; }
+.enlarge-modal-code :deep(.tk-bool)    { color: #ff5370; }
+.enlarge-modal-code :deep(.tk-prop)    { color: #80cbc4; }
 
 /* ====== 删除确认弹窗 ====== */
 .modal-mask {

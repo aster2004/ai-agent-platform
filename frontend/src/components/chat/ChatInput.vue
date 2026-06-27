@@ -1,5 +1,19 @@
 <template>
   <div class="input-area home-input" :class="{ compact }">
+    <!-- 引用代码显示条（豆包风格） -->
+    <div v-if="quotedCode" class="quoted-code-bar">
+      <div class="quoted-code-info">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 1l4 0l0 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4 0l0-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+        </svg>
+        <span class="quoted-code-label">已引用代码</span>
+      </div>
+      <button class="quoted-code-close" @click="quotedCode = ''" title="取消引用">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
     <textarea
         v-model="text"
         @compositionstart="isComposing = true"
@@ -99,6 +113,34 @@
         </Transition>
       </div>
       </template>
+
+      <!-- 模型选择（仅快速生成） -->
+      <template v-if="runMode === 'fast'">
+      <div class="output-trigger" @click="toggleModelMenu" ref="modelTriggerRef">
+        <span class="output-current">{{ modelType }}</span>
+        <svg
+            class="output-chevron"
+            :class="{ open: modelMenuOpen }"
+            width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+        >
+          <polyline points="1 5 5 1 9 5" />
+        </svg>
+        <Transition name="fade">
+          <div v-if="modelMenuOpen" class="output-menu" @click.stop>
+            <div
+                v-for="opt in modelOptions"
+                :key="opt.value"
+                class="output-option"
+                :class="{ active: modelType === opt.value }"
+                @click="selectModel(opt.value)"
+            >
+              <span>{{ opt.label }}</span>
+              <span class="opt-desc">{{ opt.desc }}</span>
+            </div>
+          </div>
+        </Transition>
+      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -120,6 +162,7 @@ const props = defineProps({
 
 const text = ref('')
 const isComposing = ref(false)
+const quotedCode = ref('')
 const runMode = ref<'fast' | 'deep'>('fast')
 const outputMode = ref<'stream' | 'sync'>('stream')
 const outputMenuOpen = ref(false)
@@ -132,6 +175,14 @@ const formatOptions = [
   { value: 'VUE', label: 'Vue', desc: 'Vue 3 工程项目' },
   { value: 'MULTI_FILE', label: '多文件', desc: 'HTML多文件项目' },
   { value: 'GENERAL', label: '通用', desc: 'AI 自动选择格式' },
+]
+const modelType = ref('deepseek')
+const modelMenuOpen = ref(false)
+const modelTriggerRef = ref<HTMLElement | null>(null)
+const modelOptions = [
+  { value: 'deepseek', label: 'DeepSeek', desc: 'DeepSeek V3' },
+  { value: 'qwen', label: '通义千问', desc: 'Qwen 3' },
+  { value: 'glm', label: '智谱GLM', desc: 'GLM-4' },
 ]
 const displayFormatType = computed(() => formatGenerateTypeLabel(formatType.value))
 const emit = defineEmits(['send'])
@@ -160,12 +211,28 @@ function selectFormat(type: string) {
   formatMenuOpen.value = false
 }
 
+function toggleModelMenu() {
+  modelMenuOpen.value = !modelMenuOpen.value
+  if (modelMenuOpen.value) {
+    outputMenuOpen.value = false
+    formatMenuOpen.value = false
+  }
+}
+
+function selectModel(model: string) {
+  modelType.value = model
+  modelMenuOpen.value = false
+}
+
 function handleClickOutside(e: MouseEvent) {
   if (outputTriggerRef.value && !outputTriggerRef.value.contains(e.target as Node)) {
     outputMenuOpen.value = false
   }
   if (formatTriggerRef.value && !formatTriggerRef.value.contains(e.target as Node)) {
     formatMenuOpen.value = false
+  }
+  if (modelTriggerRef.value && !modelTriggerRef.value.contains(e.target as Node)) {
+    modelMenuOpen.value = false
   }
 }
 
@@ -186,13 +253,17 @@ const handleSend = (e?: Event) => {
   if (!val) return
   // 「通用」模式前端映射为 MULTI_FILE — 约束最少，AI 可自由输出任意文件组合
   const actualFormat = formatType.value === 'GENERAL' ? 'MULTI_FILE' : formatType.value
+  const code = quotedCode.value
   emit('send', {
     content: val,
     mode: runMode.value,
     output: outputMode.value,
     format: actualFormat,
+    model: modelType.value,
+    quotedCode: code || undefined,
   })
   text.value = ''
+  quotedCode.value = ''
 }
 
 function setText(val: string) {
@@ -215,7 +286,15 @@ function getFormat() {
   return formatType.value
 }
 
-defineExpose({ setText, setMode, getMode, getOutput, getFormat })
+function setQuotedCode(code: string) {
+  quotedCode.value = code
+}
+
+function getModel() {
+  return modelType.value
+}
+
+defineExpose({ setText, setMode, getMode, getOutput, getFormat, getModel, setQuotedCode })
 </script>
 
 <style scoped>
@@ -447,5 +526,53 @@ textarea:focus {
   border: 1px solid #d6e4ff;
   color: #1677ff;
   font-size: 12px;
+}
+
+/* ====== 引用代码条（豆包风格） ====== */
+.quoted-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.quoted-code-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1677ff;
+  overflow: hidden;
+}
+
+.quoted-code-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.quoted-code-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  transition: all 0.15s;
+}
+
+.quoted-code-close:hover {
+  background: #e5e7eb;
+  color: #555;
 }
 </style>

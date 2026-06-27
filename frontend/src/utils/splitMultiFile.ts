@@ -20,6 +20,16 @@ import { detectFileLang, detectCodeLang } from './formatCode'
  * 每条消息内容格式化为 ```lang\ncode\n``` 或带文件头的 markdown，
  * 保证 AiStreamMessage 能正确渲染为代码卡片。
  */
+/** 过滤纯 JSON 语法残留文本（[ ] { } , : " 等），返回过滤后的文本或空字符串 */
+function filterJsonNoise(text: string): string {
+  const cleaned = text.trim()
+  if (!cleaned) return ''
+  // 只包含 JSON 语法字符和空白 → 丢弃
+  if (/^[\s\[\]\{\},:"]+$/.test(cleaned)) return ''
+  // 去除首尾孤立的 JSON 括号
+  return cleaned.replace(/^[\s\[\],:]+|[\s\[\],:]+$/g, '').trim()
+}
+
 export function splitAiContent(raw: string): string[] {
   if (!raw?.trim()) return []
 
@@ -56,7 +66,8 @@ export function splitAiContent(raw: string): string[] {
       if (formatted) parts.push(formatted)
     }
 
-    if (parts.length >= 2) return parts
+    // JSON 解析成功即返回（即使只有1个文件也格式化，避免穿透到末尾输出原始 JSON）
+    if (parts.length >= 1) return parts
   }
 
   // ---- 策略2：Markdown ## 文件标题 + 代码块 ----
@@ -78,9 +89,15 @@ export function splitAiContent(raw: string): string[] {
     const trailing = trimmed.slice(lastEnd).trim()
 
     const parts: string[] = []
-    if (intro) parts.push(intro)
+    if (intro) {
+      const filtered = filterJsonNoise(intro)
+      if (filtered) parts.push(filtered)
+    }
     parts.push(...mdFiles.map(f => formatFileMessage(f.path, f.content)))
-    if (trailing) parts.push(trailing)
+    if (trailing) {
+      const filtered = filterJsonNoise(trailing)
+      if (filtered) parts.push(filtered)
+    }
 
     // 至少拆分为 2 个部分（或单文件后有尾随内容）才返回
     if (parts.length >= 2) return parts
@@ -103,33 +120,40 @@ export function splitAiContent(raw: string): string[] {
   if (blocks.length >= 2) {
     const parts: string[] = []
 
-    // 第一个代码块之前的文字说明
+    // 第一个代码块之前的文字说明（过滤 JSON 残留）
     if (blocks[0].idx > 0) {
-      const before = trimmed.slice(0, blocks[0].idx).trim()
+      const before = filterJsonNoise(trimmed.slice(0, blocks[0].idx))
       if (before) parts.push(before)
     }
 
     for (let i = 0; i < blocks.length; i++) {
       parts.push(formatFileMessage(undefined, blocks[i].code, blocks[i].lang))
 
-      // 代码块之间的文字说明
+      // 代码块之间的文字说明（过滤 JSON 残留）
       if (i < blocks.length - 1) {
         const betweenStart = blocks[i].idx + blocks[i].full.length
         const betweenEnd = blocks[i + 1].idx
-        const between = trimmed.slice(betweenStart, betweenEnd).trim()
+        const between = filterJsonNoise(trimmed.slice(betweenStart, betweenEnd))
         if (between) parts.push(between)
       }
     }
 
-    // 最后一个代码块之后的文字
+    // 最后一个代码块之后的文字（过滤 JSON 残留）
     const lastBlock = blocks[blocks.length - 1]
-    const after = trimmed.slice(lastBlock.idx + lastBlock.full.length).trim()
+    const after = filterJsonNoise(trimmed.slice(lastBlock.idx + lastBlock.full.length))
     if (after) parts.push(after)
 
     return parts
   }
 
   // ---- 单文件 / 纯文本：不拆分 ----
+  // 最后兜底：若内容像是 JSON 数组，尝试解析格式化
+  if (trimmed.startsWith('[') && trimmed.includes('"path"') && trimmed.includes('"content"')) {
+    const files = tryExtractJsonFiles(trimmed)
+    if (files && files.length > 0) {
+      return files.map(f => formatFileMessage(f.path, f.content))
+    }
+  }
   return [raw]
 }
 
