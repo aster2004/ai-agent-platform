@@ -83,7 +83,7 @@ public class AppService {
         }
         if (app.getIsFeatured() == 1) {
             userService.addPointsWithDailyLimit(app.getUserId(), 1, UserService.POINT_TYPE_APP_VISIT,
-                    "应用" + app.getAppName() + "被访问", 50, visitorUserId, "VISITOR");
+                    "应用" + app.getAppName() + "被访问", 50, appId, "VISITOR_" + visitorUserId);
         }
     }
 
@@ -96,7 +96,7 @@ public class AppService {
         }
         if (app.getIsFeatured() == 1) {
             userService.addPointsWithDailyLimit(app.getUserId(), 5, UserService.POINT_TYPE_APP_FAVORITE,
-                    "应用" + app.getAppName() + "被部署", 50, deployerUserId, "DEPLOYER");
+                    "应用" + app.getAppName() + "被部署", 50, appId, "DEPLOYER_" + deployerUserId);
         }
     }
 
