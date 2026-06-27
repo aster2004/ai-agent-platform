@@ -113,7 +113,7 @@ class AppSyncHelperTest {
     }
 
     @Test
-    void shouldExtractIndexHtmlFromMultiFileJson() {
+    void shouldSyncMultiFileJsonAsFullArray() {
         String multiFile = """
                 [
                     {"path":"styles.css","content":"body{color:red;}"},
@@ -127,15 +127,16 @@ class AppSyncHelperTest {
                 eq("/api/app/{id}/code"),
                 argThat((Object body) -> {
                     String bodyStr = body.toString();
-                    return bodyStr.contains("<html>") && bodyStr.contains("Main")
-                            && !bodyStr.contains("styles.css");
+                    return bodyStr.contains("styles.css")
+                            && bodyStr.contains("index.html")
+                            && bodyStr.contains("app.js");
                 }),
                 eq(1L)
         );
     }
 
     @Test
-    void shouldFallbackToFirstFileWhenNoIndexHtml() {
+    void shouldSyncMultiFileJsonEvenWhenNoIndexHtml() {
         String multiFile = """
                 [
                     {"path":"styles.css","content":"body{color:red;}"},
@@ -148,7 +149,7 @@ class AppSyncHelperTest {
                 eq("/api/app/{id}/code"),
                 argThat((Object body) -> {
                     String bodyStr = body.toString();
-                    return bodyStr.contains("body{color:red;}");
+                    return bodyStr.contains("styles.css") && bodyStr.contains("app.js");
                 }),
                 eq(1L)
         );

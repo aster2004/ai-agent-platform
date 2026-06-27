@@ -174,14 +174,60 @@ function guessWrap(text: string): string | null {
 
 // ===================== 多文件合并调度 =====================
 
+/** Vue / Vite 工程：不能用普通 script 内联 ESM，必须走 Vue 沙箱 */
+function isViteVueProject(files: CodeFile[]): boolean {
+  if (files.some(f => f.path.endsWith('.vue'))) return true
+  if (files.some(f => f.path === 'vite.config.js' || f.path === 'vite.config.ts')) return true
+  const pkg = files.find(f => f.path === 'package.json')
+  if (pkg && /"vite"|"@vitejs\/plugin-vue"|"vue"/i.test(pkg.content)) return true
+  const idx = files.find(f => f.path === 'index.html' || f.path.endsWith('index.html'))
+  if (idx && /type\s*=\s*["']?module["']?/i.test(idx.content)) return true
+  return false
+}
+
+/** 跳过不应注入预览的普通脚本（Vite 配置、入口 ESM 等） */
+function isPreviewExcludedJsPath(path: string): boolean {
+  const p = path.replace(/^\.\//, '')
+  if (p === 'vite.config.js' || p === 'vite.config.ts') return true
+  if (p === 'src/main.js' || p === 'src/main.ts' || p === 'main.js' || p === 'main.ts') return true
+  return false
+}
+
+function containsEsmSyntax(code: string): boolean {
+  return /\bimport\s+[\w*{]|export\s+(default|const|function|class)\b/.test(code)
+}
+
+function stripViteModuleScripts(html: string): string {
+  return html
+      .replace(/<script\b[^>]*\btype\s*=\s*["']module["'][^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<script\b[^>]*\btype\s*=\s*module\b[^>]*\/?\s*>/gi, '')
+}
+
 function mergeFilesToHtml(files: CodeFile[]): string | null {
   if (files.length === 0) return null
+
+  // 后端工作流生成的 preview.html 已是可独立运行的 Vue 沙箱，直接渲染
+  const previewHtml = files.find(f => f.path === 'preview.html')
+  if (previewHtml?.content && isFullHtml(previewHtml.content)) {
+    return previewHtml.content
+  }
+
+  // Vue / Vite 多文件：优先编译为 Vue.global 沙箱，避免 import 语法错误
+  if (isViteVueProject(files)) {
+    const sandbox = buildVueSandbox(files)
+    if (sandbox) return sandbox
+  }
 
   const hasVue = files.some(f => f.path.endsWith('.vue'))
   const baseHtml = findMainHtml(files)
 
   // 有真正的 index.html → 以它为基础，内联所有资源
   if (baseHtml && isFullHtml(baseHtml.content)) {
+    const isViteModuleShell = baseHtml.path !== 'preview.html'
+        && /type\s*=\s*["']module["']/i.test(baseHtml.content)
+    if (isViteModuleShell && hasVue) {
+      return buildVueSandbox(files)
+    }
     return mergeWithHtmlBase(baseHtml, files, hasVue)
   }
 
@@ -226,8 +272,16 @@ function mergeWithHtmlBase(baseHtml: CodeFile, allFiles: CodeFile[], needsVue: b
     const file = resolveFile(src, fileMap)
     if (!file) return full
     const tagOpen = full.match(SCRIPT_TAG_RE)?.[1] || ''
+    if (/type\s*=\s*["']module["']/i.test(tagOpen) || isPreviewExcludedJsPath(file.path)) {
+      assembled.add(file.path)
+      return ''
+    }
     const cleanTag = tagOpen.replace(/\bsrc\s*=\s*["'][^"']+["']/i, '')
     const inlined = resolveJsRecursive(file, fileMap, assembled)
+    if (containsEsmSyntax(inlined)) {
+      assembled.add(file.path)
+      return ''
+    }
     return '<script ' + cleanTag + '>\n' + inlined + '\n</script>'
   })
 
@@ -246,6 +300,7 @@ function mergeWithHtmlBase(baseHtml: CodeFile, allFiles: CodeFile[], needsVue: b
       extraParts.push('<style>/* ' + f.path + ' */\n' + f.content + '\n</style>')
       assembled.add(f.path)
     } else if (f.path.endsWith('.js') || f.path.endsWith('.mjs') || f.path.endsWith('.ts')) {
+      if (isPreviewExcludedJsPath(f.path) || containsEsmSyntax(f.content)) continue
       extraParts.push('<script>/* ' + f.path + ' */\n' + f.content + '\n</script>')
       assembled.add(f.path)
     } else if (f.path.endsWith('.vue')) {
@@ -290,18 +345,17 @@ function mergeWithHtmlBase(baseHtml: CodeFile, allFiles: CodeFile[], needsVue: b
 function buildVueSandbox(files: CodeFile[]): string | null {
   const fileMap = buildFileMap(files)
 
-  // 找到入口 .vue 文件
   const appVue = files.find(f => f.path.endsWith('App.vue') || f.path === 'App.vue')
   const entry = appVue || files.find(f => f.path.endsWith('.vue'))
   if (!entry) return null
 
-  // 编译所有 .vue / .js 文件
   const compiled = new Map<string, CompiledComponent>()
   const visited = new Set<string>()
 
   function compileRecursive(filePath: string): CompiledComponent | null {
     const resolved = resolveFile(filePath, fileMap)
     if (!resolved) return null
+    if (isPreviewExcludedJsPath(resolved.path)) return null
     const key = resolved.path
     if (compiled.has(key)) return compiled.get(key)!
     if (visited.has(key)) return compiled.get(key) || null
@@ -320,8 +374,10 @@ function buildVueSandbox(files: CodeFile[]): string | null {
     return comp
   }
 
+  // 只编译 Vue 组件依赖图，不把 vite.config / main.js 当作预览脚本
+  compileRecursive(entry.path)
   for (const f of files) {
-    if (f.path.endsWith('.vue') || f.path.endsWith('.js') || f.path.endsWith('.ts') || f.path.endsWith('.mjs')) {
+    if (f.path.endsWith('.vue') && f.path !== entry.path) {
       compileRecursive(f.path)
     }
   }
@@ -329,18 +385,20 @@ function buildVueSandbox(files: CodeFile[]): string | null {
   const ordered = topologicalSort(compiled)
   if (ordered.length === 0) return null
 
-  const rootComp = ordered[ordered.length - 1]
+  const rootComp = ordered.find(c => /App\.vue$/i.test(c.fileName))
+      || ordered.find(c => c.fileName.endsWith('.vue'))
+      || ordered[ordered.length - 1]
   const allCss = collectAllCss(files)
   const vueApis = collectUsedVueApis(ordered)
 
-  // 组件定义
   const componentDefs = ordered.map(c => c.jsCode).join('\n\n')
 
-  // 入口 HTML
   const htmlEntry = findMainHtml(files)
   let html: string
   let isAutoEntry = false
-  if (htmlEntry) {
+  if (htmlEntry && htmlEntry.path !== 'preview.html') {
+    html = stripViteModuleScripts(htmlEntry.content)
+  } else if (htmlEntry) {
     html = htmlEntry.content
   } else {
     html = generateIndexHtml()
@@ -350,12 +408,19 @@ function buildVueSandbox(files: CodeFile[]): string | null {
   // 引导代码
   const bootCode = `
 /* ====== Vue App ====== */
+try {
 const { ${vueApis.join(', ')} } = Vue
 
 ${componentDefs}
 
 const __app__ = Vue.createApp(${rootComp.name})
 __app__.mount('#app')
+} catch (err) {
+  const el = document.getElementById('app') || document.body
+  el.innerHTML = '<div style="padding:24px;color:#cf1322;font-family:sans-serif"><h3>预览加载失败</h3><pre style="white-space:pre-wrap">'
+    + (err && err.message ? err.message : String(err)) + '</pre></div>'
+  console.error(err)
+}
 `
 
   return injectResources(html, allCss, bootCode, isAutoEntry)
@@ -373,7 +438,9 @@ function buildMinimalWrapper(files: CodeFile[]): string {
     if (f.path.endsWith('.css') || f.path.endsWith('.scss') || f.path.endsWith('.less')) {
       cssParts.push('/* ' + f.path + ' */\n' + f.content)
     } else if (f.path.endsWith('.js') || f.path.endsWith('.mjs') || f.path.endsWith('.ts')) {
-      jsParts.push('/* ' + f.path + ' */\n' + f.content)
+      if (!isPreviewExcludedJsPath(f.path) && !containsEsmSyntax(f.content)) {
+        jsParts.push('/* ' + f.path + ' */\n' + f.content)
+      }
     } else if (f.path.endsWith('.html') || f.path.endsWith('.htm')) {
       htmlParts.push(f.content)
     } else if (f.path.endsWith('.vue')) {
@@ -762,6 +829,7 @@ function compileJsModule(file: CodeFile, fileMap: Map<string, CodeFile>): Compil
 
   // 清理vue导入
   code = code.replace(/import\s+\{([^}]+)\}\s*from\s*['"]vue['"]\s*;?/g, '')
+  code = code.replace(/import\s+(\w+)\s+from\s*['"]vue['"]\s*;?/g, '')
   // 替换vue组件导入
   code = code.replace(
       /import\s+(\w+)\s+from\s*['"](\.[^'"]+\.vue)['"]\s*;?/g,
@@ -782,6 +850,10 @@ function compileJsModule(file: CodeFile, fileMap: Map<string, CodeFile>): Compil
   code = code.replace(/import\s+['"](\.[^'"]+\.css)['"]\s*;?/g, '')
   code = code.replace(/import\s+.*?from\s+['"]\.[^'"]+['"]\s*;?/g, '')
   code = code.replace(/import\s+['"]\.[^'"]+['"]\s*;?/g, '')
+  // 兜底：移除剩余 ESM 语句（vite / 第三方包等）
+  code = code.replace(/import\s+[\s\S]*?from\s*['"][^'"]+['"]\s*;?/g, '')
+  code = code.replace(/import\s*['"][^'"]+['"]\s*;?/g, '')
+  code = code.replace(/export\s+default\s+/g, '')
   code = code.replace(/\n{3,}/g, '\n\n').trim()
 
   return {
@@ -968,10 +1040,17 @@ function injectResources(html: string, css: string, bootJs: string, isAutoEntry:
 
 // ===================== 文件路径工具函数 =====================
 
+function normalizeRefPath(refPath: string): string {
+  return refPath.replace(/^\.\//, '').replace(/^\//, '')
+}
+
 function buildFileMap(files: CodeFile[]): Map<string, CodeFile> {
   const map = new Map<string, CodeFile>()
   for (const f of files) {
     map.set(f.path, f)
+    const normalized = normalizeRefPath(f.path)
+    if (!map.has(normalized)) map.set(normalized, f)
+    if (!map.has('/' + normalized)) map.set('/' + normalized, f)
     const fileName = f.path.split('/').pop()!
     if (!map.has(fileName)) map.set(fileName, f)
     // 兼容常见目录前缀
@@ -980,6 +1059,7 @@ function buildFileMap(files: CodeFile[]): Map<string, CodeFile> {
       if (f.path.startsWith(prefix)) {
         const shortKey = f.path.slice(prefix.length)
         if (!map.has(shortKey)) map.set(shortKey, f)
+        if (!map.has('/' + shortKey)) map.set('/' + shortKey, f)
       }
     }
   }
@@ -987,7 +1067,8 @@ function buildFileMap(files: CodeFile[]): Map<string, CodeFile> {
 }
 
 function findMainHtml(files: CodeFile[]): CodeFile | null {
-  return files.find(f => f.path === 'index.html' || f.path.endsWith('index.html'))
+  return files.find(f => f.path === 'preview.html')
+      || files.find(f => f.path === 'index.html' || f.path.endsWith('index.html'))
       || files.find(f => f.path.endsWith('.html'))
       || null
 }
@@ -995,9 +1076,10 @@ function findMainHtml(files: CodeFile[]): CodeFile | null {
 function resolveFile(refPath: string, fileMap: Map<string, CodeFile>, fromFile?: string): CodeFile | null {
   // 直接匹配
   if (fileMap.has(refPath)) return fileMap.get(refPath)!
-  // 去除./前缀再匹配
-  const cleanPath = refPath.replace(/^\.\//, '')
+  // 去除 ./ 与 / 前缀再匹配（index.html 中常见 /src/main.js）
+  const cleanPath = normalizeRefPath(refPath)
   if (fileMap.has(cleanPath)) return fileMap.get(cleanPath)!
+  if (fileMap.has('/' + cleanPath)) return fileMap.get('/' + cleanPath)!
   // 尝试补全后缀
   const extList = ['.vue', '.js', '.ts', '.css']
   for (const ext of extList) {

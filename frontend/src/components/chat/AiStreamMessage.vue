@@ -7,8 +7,8 @@
       <span class="think-dot" />
     </div>
 
-    <!-- 已完成 或 流式：统一浅灰圆角卡片 -->
-    <div v-else-if="isCodeContent" class="code-card">
+    <!-- 已完成 或 流式：统一浅灰圆角卡片（无有效代码时回退 markdown，避免空白白块） -->
+    <div v-else-if="isCodeContent && hasRenderableCode" class="code-card">
       <!-- 头部栏 -->
       <div class="card-header">
         <span class="card-lang-tag">{{ isStreaming ? streamLangLabel : codeLangLabel }}</span>
@@ -22,7 +22,7 @@
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
               </svg>
             </button>
-            <button v-if="showPreviewBtn" class="icon-btn preview-btn" :title="previewBtnLabel" @click="handlePreviewClick">
+            <button v-if="showPreviewBtn" class="icon-btn preview-btn" :title="previewBtnLabel" @click.stop="handlePreviewClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
               </svg>
@@ -33,7 +33,7 @@
                 <path d="M17 1l4 0l0 4" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><path d="M7 23l-4 0l0-4" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
               </svg>
             </button>
-            <button v-if="showPreviewBtn" class="icon-btn" title="放大查看" @click="handleEnlargeClick">
+            <button v-if="showPreviewBtn" class="icon-btn" title="放大查看" @click.stop="handlePreviewClick">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" />
               </svg>
@@ -64,7 +64,7 @@
     </div>
 
     <!-- 普通的 markdown 文本/多文件 -->
-    <template v-else-if="!isStreaming && !isCodeContent">
+    <template v-else-if="!isStreaming && (!isCodeContent || !hasRenderableCode)">
       <template v-for="(seg, idx) in parsedSegments" :key="idx">
         <div v-if="seg.type === 'text'" class="md-text" v-html="seg.html" />
         <CodeBlock
@@ -72,12 +72,13 @@
             :content="seg.code || ''"
             :lang="seg.lang || 'text'"
             :filename="codeFilename(seg.lang, idx)"
+            @preview="emit('preview')"
         />
       </template>
     </template>
 
     <!-- 流式文本 -->
-    <template v-else-if="isStreaming && !isCodeContent">
+    <template v-else-if="isStreaming && (!isCodeContent || !hasRenderableCode)">
       <template v-for="(seg, idx) in parsedSegments" :key="idx">
         <div v-if="seg.type === 'text'" class="md-text" v-html="seg.html" />
         <CodeBlock
@@ -85,6 +86,7 @@
             :content="seg.code || ''"
             :lang="seg.lang || 'text'"
             :filename="codeFilename(seg.lang, idx)"
+            @preview="emit('preview')"
         />
       </template>
       <span class="stream-cursor">|</span>
@@ -92,13 +94,13 @@
 
     <!-- 重新生成 / 删除 -->
     <div v-if="!isStreaming && content" class="msg-actions">
-      <button class="act-btn" @click="$emit('retry')">
+      <button class="act-btn" @click.stop="$emit('retry')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
         </svg>
         <span>重新生成</span>
       </button>
-      <button class="act-btn delete-btn" @click="handleDelete">
+      <button class="act-btn delete-btn" @click.stop="handleDelete">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6" />
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -183,12 +185,23 @@ watch(() => props.content, () => {
 const isCodeContent = computed(() => {
   const c = props.content?.trim()
   if (!c) return false
+  // 工作流 / 需求分析消息始终走 markdown，避免误识别为代码卡片
+  if (/^##\s+(📋|🔄)/.test(c)) return false
   if (/^<(!DOCTYPE|html|head|body|div|meta|link|style|script|title|template)/i.test(c)) return true
   if (c.startsWith('[') && c.includes('"path"') && c.includes('"content"')) return true
   if (c.includes('```')) return true
   // ## 📁 文件标题格式（拆分后每条消息一个文件）
   if (/^##\s+📁/.test(c)) return true
   return false
+})
+
+/** 提取后是否仍有可展示的代码正文（防止空白 code-card） */
+const hasRenderableCode = computed(() => {
+  if (props.isStreaming) {
+    const raw = props.content?.trim()
+    return !!raw
+  }
+  return !!codeText.value.trim()
 })
 
 /** 根据文件路径扩展名获取显示标签 */

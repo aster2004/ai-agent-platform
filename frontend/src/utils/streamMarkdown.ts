@@ -7,6 +7,7 @@
  */
 
 import { detectFileLang, detectCodeLang } from './formatCode'
+import { sanitizePrdDisplayText } from './formatCodeFiles'
 import { regexExtractFiles, formatPartialJsonEntry } from './splitMultiFile'
 
 /**
@@ -20,6 +21,11 @@ import { regexExtractFiles, formatPartialJsonEntry } from './splitMultiFile'
 export function normalizeAiContent(raw: string): string {
     if (!raw?.trim()) return raw
     const trimmed = raw.trim()
+
+    // PRD / 工作流记录：保持纯 Markdown 文字，勿将内嵌 HTML 转成代码块
+    if (/^##\s+(📋|🔄)/.test(trimmed)) {
+        return sanitizePrdDisplayText(trimmed) || trimmed
+    }
 
     // ---- 策略0：markdown 文件标题 + 代码块模式 ----
     // AI 常输出 "## index.html\n```html\n...```" 表示多文件

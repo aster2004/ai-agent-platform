@@ -52,6 +52,12 @@ public final class StandalonePreviewBuilder {
                     .findFirst()
                     .orElse(null);
         }
+        if (appVue == null) {
+            appVue = files.stream()
+                    .filter(f -> f.getPath() != null && f.getPath().endsWith(".vue"))
+                    .findFirst()
+                    .orElse(null);
+        }
         if (appVue != null && appVue.getContent() != null) {
             return Optional.of(buildFromVueProject(appVue.getContent(), files));
         }

@@ -25,6 +25,7 @@ import com.ai.agentplatform.module.codegen.workflow.state.WorkflowState;
 import com.ai.agentplatform.module.codegen.workflow.state.WorkflowStep;
 import com.ai.agentplatform.module.codegen.workflow.vo.WorkflowResultVO;
 import com.ai.agentplatform.module.codegen.workflow.vo.WorkflowStepEvent;
+import com.ai.agentplatform.module.codegen.workflow.support.PrdTextSanitizer;
 import com.ai.agentplatform.module.codegen.workflow.support.StandalonePreviewBuilder;
 import com.ai.agentplatform.module.codegen.workflow.vo.WorkflowTaskVO;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -181,8 +182,8 @@ public class CodeGenWorkflowService {
                 sendTask(emitter, tasks, "save_file", "保存内容 需求文档.md", "prd.md");
                 PendingState pending = new PendingState();
                 pending.setPhase(PHASE_AWAIT);
-                pending.setSummary(finalState.summary());
-                pending.setPrd(finalState.prd());
+                pending.setSummary(PrdTextSanitizer.sanitizeSummary(finalState.summary()));
+                pending.setPrd(PrdTextSanitizer.sanitizePrd(finalState.prd()));
                 pending.setTasks(tasks);
                 if (!hasText(pending.getPrd())) {
                     throw new IllegalStateException("PRD 生成结果为空，请重试");
@@ -196,8 +197,8 @@ public class CodeGenWorkflowService {
                 WorkflowResultVO result = WorkflowResultVO.builder()
                         .generateId(record.getId())
                         .phase(PHASE_AWAIT)
-                        .summary(finalState.summary())
-                        .prdContent(finalState.prd())
+                        .summary(PrdTextSanitizer.sanitizeSummary(finalState.summary()))
+                        .prdContent(PrdTextSanitizer.sanitizePrd(finalState.prd()))
                         .tasks(tasks)
                         .durationMs((int) (System.currentTimeMillis() - start))
                         .build();
@@ -235,7 +236,6 @@ public class CodeGenWorkflowService {
                 init.put(WorkflowState.PRD_KEY, pending.getPrd());
                 init.put(WorkflowState.CURRENT_STEP_KEY, WorkflowStep.STRATEGY.getCode());
 
-                sendStepEvent(emitter, WorkflowStep.STRATEGY);
                 WorkflowState finalState = runGraph(generateGraph, init, step -> sendStepEvent(emitter, step));
                 WorkflowResultVO result = finalizeRecord(record, finalState, start);
                 result.setPhase(PHASE_DONE);
@@ -354,7 +354,7 @@ public class CodeGenWorkflowService {
         if (finalState == null) {
             throw new IllegalStateException("工作流未产生任何状态");
         }
-        if (notifyDone) {
+        if (notifyDone && lastNotified != WorkflowStep.DONE) {
             stepListener.accept(WorkflowStep.DONE);
         }
         return finalState;

@@ -132,17 +132,9 @@ function handleDownload() {
 }
 
 async function handleRun() {
-  const files = collectFiles()
-  const primary = files.find(f => f.path.endsWith('.html'))?.content ?? props.content
-  const isStandaloneHtml = primary.includes('<html') || primary.includes('<!DOCTYPE')
-  if (files.length === 1 && isStandaloneHtml && !primary.includes('type="module"')) {
-    const win = window.open('', '_blank')
-    if (win) { win.document.open(); win.document.write(primary); win.document.close() }
-    return
-  }
   running.value = true
   try {
-    emit('preview', files)
+    emit('preview', collectFiles())
   } finally {
     running.value = false
   }

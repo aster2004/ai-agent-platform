@@ -1,7 +1,6 @@
 package com.ai.agentplatform.module.codegen.service.helper;
 
 import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.ai.agentplatform.module.chat.entity.ChatSession;
 import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
@@ -27,8 +26,7 @@ import java.util.Map;
  * <p>多文件格式约定（与成员2、3协作）：</p>
  * <ul>
  *   <li>单文件 HTML：app_code 直接存原始 HTML</li>
- *   <li>多文件 MULTI_FILE：code_generate.code_content 存完整 JSON 数组；
- *       app.app_code 提取首个 index.html 内容，保证预览模块可直接渲染</li>
+ *   <li>多文件 MULTI_FILE：app.app_code 存完整 JSON 数组，部署预览模块自行解析并优先使用 preview.html</li>
  * </ul>
  */
 @Slf4j
@@ -179,10 +177,10 @@ public class AppSyncHelper {
             return;
         }
         try {
-            String previewContent = extractPreviewContent(fullCode);
-            Map<String, String> body = Map.of("codeContent", previewContent);
+            String codeContent = resolveCodeContentForApp(fullCode);
+            Map<String, String> body = Map.of("codeContent", codeContent);
             codeGenRestTemplate.put(APP_CODE_UPDATE_URL, body, appId);
-            log.info("[应用同步] appId={}, 代码长度={}, 已写入 app.app_code", appId, previewContent.length());
+            log.info("[应用同步] appId={}, 代码长度={}, 已写入 app.app_code", appId, codeContent.length());
         } catch (Exception e) {
             // 同步失败不阻塞代码生成主流程，仅记录错误日志
             log.error("[应用同步失败] appId={}, 原因: {}", appId, e.getMessage(), e);
@@ -209,38 +207,17 @@ public class AppSyncHelper {
     }
 
     /**
-     * 多文件JSON → 提取可预览的 HTML 内容
-     * 优先取 index.html，找不到则取第一个文件内容；非 JSON 原样返回
+     * 决定写入 app.app_code 的内容。
+     * 多文件 JSON 数组原样保留，供部署预览模块内联资源并优先打开 preview.html；
+     * 单文件 HTML 则直接写入。
      */
-    private String extractPreviewContent(String fullCode) {
+    private String resolveCodeContentForApp(String fullCode) {
         if (fullCode == null || fullCode.isBlank()) {
             return fullCode;
         }
         String trimmed = fullCode.trim();
-        if (!trimmed.startsWith("[")) {
+        if (trimmed.startsWith("[")) {
             return fullCode;
-        }
-        try {
-            JSONArray files = JSON.parseArray(trimmed);
-            // 优先查找 index.html
-            for (int i = 0; i < files.size(); i++) {
-                JSONObject file = files.getJSONObject(i);
-                String path = file.getString("path");
-                if (path != null && (path.endsWith("index.html") || path.equals("index.html"))) {
-                    String content = file.getString("content");
-                    log.debug("[多文件提取] 找到 index.html, 内容长度={}", content != null ? content.length() : 0);
-                    return content != null ? content : fullCode;
-                }
-            }
-            // 无 index.html，取第一个文件内容
-            if (!files.isEmpty()) {
-                JSONObject firstFile = files.getJSONObject(0);
-                String content = firstFile.getString("content");
-                log.debug("[多文件提取] 无 index.html，取首个文件: {}", firstFile.getString("path"));
-                return content != null ? content : fullCode;
-            }
-        } catch (Exception e) {
-            log.warn("[多文件提取] JSON 解析失败，使用原始内容同步", e);
         }
         return fullCode;
     }

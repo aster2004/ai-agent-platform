@@ -1,7 +1,9 @@
 package com.ai.agentplatform.module.codegen.workflow.node;
 
+import com.ai.agentplatform.module.codegen.workflow.support.PrdTextSanitizer;
 import com.ai.agentplatform.module.codegen.workflow.state.WorkflowState;
 import com.ai.agentplatform.module.codegen.workflow.state.WorkflowStep;
+import org.springframework.util.StringUtils;
 import dev.langchain4j.model.chat.ChatModel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,18 +41,19 @@ public class PrdNode implements NodeAction<WorkflowState> {
                    ## 3. 交互与状态
                    - 用户操作流程
                    - 关键状态变化
-                   ## 4. 技术建议
-                   - 推荐技术栈（如 Vue 3）
-                   - 关键实现要点
-                3. 不要输出代码，只输出需求文档正文
-                4. 不要包裹 markdown 代码块
+                   ## 4. 实现要点（仅文字描述，不要写代码或技术栈列表）
+                   - 关键交互与状态说明
+                3. 严禁输出任何代码、HTML、CSS、JavaScript、Vue 片段或 markdown 代码块
+                4. 不要包裹 markdown 代码围栏
 
                 需求摘要：%s
                 原始需求：%s
                 """.formatted(summary, prompt);
 
-        String prd = chatModel.chat(prdPrompt).trim();
-        prd = stripCodeFence(prd);
+        String prd = PrdTextSanitizer.sanitizePrd(chatModel.chat(prdPrompt).trim());
+        if (!StringUtils.hasText(prd)) {
+            prd = buildFallbackPrd(summary, prompt);
+        }
         log.info("[Workflow] PRD 生成完成, 长度={}", prd.length());
 
         return Map.of(
@@ -59,15 +62,21 @@ public class PrdNode implements NodeAction<WorkflowState> {
         );
     }
 
-    private static String stripCodeFence(String text) {
-        String trimmed = text.trim();
-        if (trimmed.startsWith("```")) {
-            int firstNewline = trimmed.indexOf('\n');
-            int lastFence = trimmed.lastIndexOf("```");
-            if (firstNewline > 0 && lastFence > firstNewline) {
-                return trimmed.substring(firstNewline + 1, lastFence).trim();
-            }
-        }
-        return trimmed;
+    private static String buildFallbackPrd(String summary, String prompt) {
+        String s = StringUtils.hasText(summary) ? summary : prompt;
+        return """
+                ## 1. 应用概述
+                - 应用名称：AI 生成应用
+                - 应用简介：%s
+
+                ## 2. 页面结构与功能说明
+                - 根据用户描述实现主要页面布局与核心功能模块
+
+                ## 3. 交互与状态
+                - 描述用户从打开页面到完成主要操作的流程
+
+                ## 4. 实现要点
+                - 页面需具备完整可交互 UI，避免空白占位
+                """.formatted(s == null ? "" : s.trim());
     }
 }

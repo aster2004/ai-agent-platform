@@ -74,7 +74,12 @@
 
       <!-- 预览内容 -->
       <div class="preview-body">
-        <div v-if="!htmlContent && !sourceCode" class="preview-empty">
+        <div v-if="loading" class="preview-loading">
+          <a-spin size="large" />
+          <p>正在生成应用，请稍候...</p>
+        </div>
+
+        <div v-else-if="!htmlContent && !sourceCode" class="preview-empty">
           <div class="empty-icon">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d0d5dd" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
@@ -108,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { highlightCode } from '@/utils/syntaxHighlight'
 import { formatLangLabel } from '@/utils/formatCode'
@@ -122,6 +127,8 @@ const props = defineProps<{
   visible: boolean
   width: number
   collapsed: boolean
+  /** 深度分析生成中：显示加载态 */
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -198,10 +205,17 @@ const panelStyle = computed(() => {
 
 // ===================== 内容变化监听 =====================
 
-watch(() => props.content, () => {
-  if (props.visible && htmlContent.value) {
+/** 避免生成完成时连续多次刷新 iframe（控制台会出现多条 about:srcdoc 警告 + 短暂白屏） */
+let previewRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(htmlContent, (val, prev) => {
+  if (!props.visible || !val) return
+  if (val === prev) return
+  if (previewRefreshTimer) clearTimeout(previewRefreshTimer)
+  previewRefreshTimer = setTimeout(() => {
     previewKey.value++
-  }
+    previewRefreshTimer = null
+  }, 280)
 })
 
 watch([htmlContent, sourceCode], () => {
@@ -212,6 +226,10 @@ watch([htmlContent, sourceCode], () => {
   }
 })
 
+onUnmounted(() => {
+  if (previewRefreshTimer) clearTimeout(previewRefreshTimer)
+})
+
 // ===================== UI 事件 =====================
 
 function onResizeStart(e: MouseEvent) { emit('resize-start', e) }
@@ -219,12 +237,15 @@ function refreshPreview() { previewKey.value++ }
 
 function openInNewWindow() {
   if (!htmlContent.value) return
-  const win = window.open('', '_blank')
-  if (win) {
-    win.document.open()
-    win.document.write(htmlContent.value)
-    win.document.close()
+  const blob = new Blob([htmlContent.value], { type: 'text/html;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, '_blank', 'noopener,noreferrer')
+  if (!win) {
+    URL.revokeObjectURL(url)
+    message.warning('无法打开新窗口，请检查浏览器是否拦截了弹窗')
+    return
   }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 function copyCode() {
@@ -471,7 +492,8 @@ function formatMultiFileSource(files: CodeFile[]): string {
   border: none;
 }
 
-/* ====== 空状态 ====== */
+/* ====== 空状态 / 加载态 ====== */
+.preview-loading,
 .preview-empty {
   display: flex;
   flex-direction: column;
@@ -480,6 +502,12 @@ function formatMultiFileSource(files: CodeFile[]): string {
   height: 100%;
   gap: 8px;
   background: #fafbfc;
+}
+
+.preview-loading p {
+  font-size: 14px;
+  color: #888;
+  margin: 8px 0 0;
 }
 
 .empty-icon {

@@ -20,12 +20,19 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * P2：Selenium 封面截图。需在 application.yml 设置 app.deploy.screenshot-enabled=true，
  * 且本机已安装 Chrome 与对应 ChromeDriver。
+ *
+ * <p>Selenium Manager 解析 driver 时会启动子进程并在虚拟线程上 waitFor；
+ * 若使用 {@code Future.cancel(true)} 中断虚拟线程，会被包装成 NoSuchDriverException。
+ * 因此截图任务必须在平台线程上执行，且超时后不可 interrupt。</p>
  */
 @Slf4j
 @Service
@@ -33,7 +40,8 @@ import java.util.concurrent.TimeoutException;
 @ConditionalOnProperty(name = "app.deploy.screenshot-enabled", havingValue = "true")
 public class CoverScreenshotService {
 
-    private static final long CAPTURE_HARD_TIMEOUT_SECONDS = 30;
+    /** 首次启动 Chrome + Selenium Manager 解析 driver 可能较慢 */
+    private static final long CAPTURE_HARD_TIMEOUT_SECONDS = 90;
 
     private final AppPreviewService appPreviewService;
     private final AppDeployAccessor appDeployAccessor;
@@ -43,7 +51,17 @@ public class CoverScreenshotService {
     @Value("${server.port:8080}")
     private int serverPort;
 
-    private final ExecutorService captureExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    /** 单平台线程串行截图，避免虚拟线程 interrupt 打断 Selenium Manager */
+    private final ExecutorService captureExecutor = Executors.newSingleThreadExecutor(new ThreadFactory() {
+        private final AtomicInteger seq = new AtomicInteger();
+
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread thread = new Thread(r, "cover-screenshot-" + seq.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        }
+    });
 
     public CoverResultVO captureCover(Long appId) throws IOException, InterruptedException {
         PreviewVO preview = appPreviewService.buildPreview(appId);
@@ -60,12 +78,17 @@ public class CoverScreenshotService {
     }
 
     private void captureWithSelenium(String url, Path outputPath) throws InterruptedException {
-        var future = captureExecutor.submit(() -> runSeleniumCapture(url, outputPath));
+        Future<?> future = captureExecutor.submit(() -> runSeleniumCapture(url, outputPath));
         try {
             future.get(CAPTURE_HARD_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            future.cancel(true);
+            // 不可 cancel(true)：会 interrupt 平台线程上的 Selenium Manager 子进程 waitFor
+            future.cancel(false);
             throw new BusinessException("封面截图超时，请稍后重试或检查 Chrome 是否可用");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(false);
+            throw e;
         } catch (Exception e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
             if (cause instanceof BusinessException businessException) {
@@ -106,8 +129,16 @@ public class CoverScreenshotService {
             Thread.sleep(800);
             byte[] screenshot = ((org.openqa.selenium.TakesScreenshot) driver).getScreenshotAs(org.openqa.selenium.OutputType.BYTES);
             Files.write(outputPath, screenshot);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("封面截图被中断: url={}", url, e);
+            throw new BusinessException("封面截图被中断，请稍后重试");
         } catch (Exception e) {
             log.error("封面截图失败: url={}", url, e);
+            String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            if (detail.contains("NoSuchDriver") || detail.contains("InterruptedException")) {
+                throw new BusinessException("封面截图失败：ChromeDriver 初始化被中断，请确认已安装 Chrome 并重试");
+            }
             throw new BusinessException("封面截图失败，请确认已安装 Chrome 并启用 screenshot-enabled");
         } finally {
             if (driver != null) {

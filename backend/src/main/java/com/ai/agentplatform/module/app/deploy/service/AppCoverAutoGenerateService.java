@@ -38,7 +38,8 @@ public class AppCoverAutoGenerateService {
 
     private static final int COVER_WIDTH = 1280;
     private static final int COVER_HEIGHT = 720;
-    private static final long SCREENSHOT_TIMEOUT_SECONDS = 40;
+    /** 需大于 CoverScreenshotService 内部超时，并留出 Selenium Manager 首次解析 driver 的时间 */
+    private static final long SCREENSHOT_TIMEOUT_SECONDS = 120;
 
     private final AppRepository appRepository;
     private final AppDeployAccessor appDeployAccessor;
@@ -46,7 +47,12 @@ public class AppCoverAutoGenerateService {
     private final ObjectProvider<CoverScreenshotService> coverScreenshotServiceProvider;
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
-    private final ExecutorService screenshotExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    /** 平台线程执行截图，避免 virtual thread + cancel(true) 打断 Selenium Manager */
+    private final ExecutorService screenshotExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread thread = new Thread(r, "cover-auto-screenshot");
+        thread.setDaemon(true);
+        return thread;
+    });
     /** 串行截图，避免多个 Chrome 同时启动导致卡死 */
     private final Semaphore screenshotLock = new Semaphore(1);
 
@@ -120,7 +126,7 @@ public class AppCoverAutoGenerateService {
             future.get(SCREENSHOT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             if (future != null) {
-                future.cancel(true);
+                future.cancel(false);
             }
             log.warn("[封面自动生成] appId={} Selenium 超时 ({}s)，改用占位图", appId, SCREENSHOT_TIMEOUT_SECONDS);
         } catch (Exception e) {

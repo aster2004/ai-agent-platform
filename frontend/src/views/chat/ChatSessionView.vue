@@ -31,16 +31,14 @@
       </a-tooltip>
     </div>
 
-    <!-- ====== 主聊天区域（深度分析三栏 / 普通双栏） ====== -->
+    <!-- ====== 主聊天区域（深度分析 / 快速生成均为：左对话 + 右预览） ====== -->
     <div
         class="main-chat"
-        :class="{ 'with-preview': previewVisible && !workspaceMode, 'workspace-mode': workspaceMode }"
-        ref="workspaceRef"
+        :class="{ 'with-preview': previewVisible, 'deep-mode': deepMode && previewVisible }"
     >
       <div
           class="col-chat"
-          :class="{ 'col-chat-fixed': workspaceMode }"
-          :style="workspaceMode ? { width: `${columnWidths.chat}px` } : undefined"
+          :class="{ 'col-chat-narrow': deepMode && previewVisible }"
       >
         <div v-if="fromAppManage" class="back-bar">
           <a-button type="link" class="back-btn" @click="goBackToAppManage">
@@ -93,6 +91,7 @@
                     :is-streaming="false"
                     @retry="handleRetryAi(msg)"
                     @delete="handleDeleteMessage(msg.id)"
+                    @preview="openMessagePreview(msg.id)"
                 />
               </div>
             </div>
@@ -170,26 +169,18 @@
         </div>
       </div>
 
-      <template v-if="workspaceMode">
-        <ColumnResizer @start="beginResize(0, $event)" />
-        <DeepWorkspace
-            :files="workspaceFiles"
-            :generating="generating"
-            :tree-width="columnWidths.tree"
-            @resize-tree-start="beginResize(1, $event)"
-        />
-      </template>
     </div>
 
-    <!-- ====== 右侧预览面板（快速生成模式） ====== -->
+    <!-- ====== 右侧预览面板 ====== -->
     <ChatPreviewPanel
-        v-if="!workspaceMode"
         :content="previewContent"
         :visible="previewVisible"
         :width="previewWidth"
         :collapsed="collapsedPreview"
+        :loading="previewLoading"
         @resize-start="startResize"
         @toggle="togglePreview"
+        @close="previewVisible = false"
     />
 
     <!-- 删除消息确认弹窗 -->
@@ -216,14 +207,11 @@ import ChatMessage from '@/components/chat/ChatMessage.vue'
 import AiStreamMessage from '@/components/chat/AiStreamMessage.vue'
 import ChatInput from '@/components/chat/ChatInput.vue'
 import ChatPreviewPanel from '@/components/chat/ChatPreviewPanel.vue'
-import DeepWorkspace from '@/components/chat/DeepWorkspace.vue'
-import ColumnResizer from '@/components/chat/ColumnResizer.vue'
 import { getSessionList, getHistoryMsg, saveChatMessage, saveAiMessage, deleteSession, createSession, deleteMessage, renameSession } from '@/api/chat'
 import { generateCodeStream, analyzeWorkflowStream, continueWorkflowStream, generateCode } from '@/api/codegen'
 import { readSseStream } from '@/utils/codegenStream'
-import { splitAiContent } from '@/utils/splitMultiFile'
-import { formatCodeFilesToContent, formatPrdSummary } from '@/utils/formatCodeFiles'
-import { useColumnResize } from '@/composables/useColumnResize'
+import { splitAiContent, parseContentToFiles } from '@/utils/splitMultiFile'
+import { formatCodeFilesToContent, formatPrdSummary, formatWorkflowLog, isRenderablePreviewProject } from '@/utils/formatCodeFiles'
 import type { ChatSaveReq, ChatSession, ChatMessage as ChatMessageType } from '@/types/chat'
 import type { CodeFile, WorkflowResult, WorkflowStepEvent, WorkflowTask } from '@/types/codegen'
 
@@ -249,16 +237,11 @@ const lastFormat = ref<GenerateFormat>('HTML')
 const abortController = ref<AbortController | null>(null)
 const previewVisible = ref(false)
 const collapsedPreview = ref(false)
-const workspaceMode = ref(false)
+/** 深度分析模式：左窄对话 + 右大预览（nocode 风格） */
+const deepMode = ref(false)
 const workspaceFiles = ref<CodeFile[]>([])
-const workspaceRef = ref<HTMLElement | null>(null)
-const { widths: columnWidths, beginResize } = useColumnResize(
-    () => workspaceRef.value,
-    { chat: 360, tree: 240 },
-    { chat: 280, tree: 180 },
-    320,
-)
 const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
+const getDeepPreviewWidth = () => Math.max(420, Math.round(window.innerWidth * 0.58))
 const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
 const previewWidth = ref(getDefaultPreviewWidth())
 const isDragging = ref(false)
@@ -279,10 +262,14 @@ const showDeleteMsgConfirm = ref(false)
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
 
-/** 预览内容：优先取流式内容，其次取选中/最新 AI 消息所在的多文件批次 */
+/** 预览内容：生成完成后再渲染；深度分析优先用结构化文件列表 */
 const previewContent = computed(() => {
-  // 流式生成中：累积的完整内容包含所有文件
-  if (streamingContent.value) return streamingContent.value
+  // 快速生成流式过程中不渲染预览，避免半截 JSON/HTML 闪烁
+  if (generating.value && !deepMode.value) return ''
+
+  if (workspaceFiles.value.length > 0) {
+    return formatCodeFilesToContent(workspaceFiles.value)
+  }
 
   // 用户手动选中了某条消息 → 收集它所在批次的连续 AI 消息
   if (activePreviewMsgId.value != null) {
@@ -291,6 +278,9 @@ const previewContent = computed(() => {
   }
 
   // 默认：收集最新一批连续 AI 消息（一次生成的所有文件）
+  const codeBatch = collectLatestCodeFileMessages()
+  if (codeBatch) return codeBatch
+
   const latestBatch = collectLatestAiBatch()
   if (latestBatch) return latestBatch
 
@@ -338,6 +328,7 @@ function resolveCodegenAppId(): number | undefined {
 
 /** 是否有可预览的内容（含 HTML/Vue/多文件代码块） */
 const hasPreviewContent = computed(() => {
+  if (workspaceFiles.value.length > 0) return true
   const c = previewContent.value
   if (!c) return false
   // HTML/Vue 代码块
@@ -347,6 +338,13 @@ const hasPreviewContent = computed(() => {
   // 多文件 JSON 数组
   if (c.trim().startsWith('[') && c.includes('"path"') && c.includes('"content"')) return true
   return false
+})
+
+/** 预览加载态：生成未完成前展示 loading，不渲染半截内容 */
+const previewLoading = computed(() => {
+  if (!generating.value) return false
+  if (deepMode.value) return workspaceFiles.value.length === 0
+  return true
 })
 
 // ========== 初始化 ==========
@@ -402,7 +400,7 @@ watch(() => route.params.sessionId, async (newId) => {
     generatingError.value = ''
     previewVisible.value = false
     collapsedPreview.value = false
-    workspaceMode.value = false
+    deepMode.value = false
     workspaceFiles.value = []
     activePreviewMsgId.value = null
     await loadMessages(id)
@@ -416,6 +414,7 @@ async function loadMessages(sessionId: number) {
     const res = await getHistoryMsg(sessionId)
     if (res.code === 200 && res.data) {
       msgList.value = res.data.list ?? []
+      restoreDeepWorkspaceFromHistory()
       await scrollToBottom()
     }
   } catch {
@@ -423,6 +422,39 @@ async function loadMessages(sessionId: number) {
   } finally {
     loadingHistory.value = false
   }
+}
+
+/** 收集消息列表末尾连续的「代码文件」AI 消息（不含工作流/PRD） */
+function collectLatestCodeFileMessages(): string | null {
+  const parts: string[] = []
+  for (let i = msgList.value.length - 1; i >= 0; i--) {
+    const msg = msgList.value[i]
+    if (msg.messageType !== 'ai') break
+    const c = msg.content?.trim() ?? ''
+    if (/^##\s+📁/.test(c)) {
+      parts.unshift(c)
+    }
+  }
+  return parts.length > 0 ? parts.join('\n\n') : null
+}
+
+/** 从历史消息恢复深度分析的多文件预览（刷新页面后仍可用） */
+function restoreDeepWorkspaceFromHistory() {
+  const codeBatch = collectLatestCodeFileMessages() || collectLatestAiBatch()
+  if (!codeBatch) {
+    workspaceFiles.value = []
+    return
+  }
+  const parsed = parseContentToFiles(codeBatch)
+  if (!parsed?.length || !isRenderablePreviewProject(parsed)) {
+    workspaceFiles.value = []
+    return
+  }
+  workspaceFiles.value = parsed
+  deepMode.value = true
+  previewVisible.value = true
+  previewWidth.value = getDeepPreviewWidth()
+  showSidebar.value = false
 }
 
 async function switchSession(id: number) {
@@ -554,7 +586,19 @@ function isLastAiMsg(msgId: number): boolean {
 
 /** 手动选择某条 AI 消息显示在预览面板 */
 function selectPreview(msgId: number) {
+  openMessagePreview(msgId)
+}
+
+function openMessagePreview(msgId: number) {
   activePreviewMsgId.value = msgId
+  // 深度分析多文件：保持 workspaceFiles，避免预览被清掉后误触空白窗
+  if (deepMode.value && workspaceFiles.value.length > 0) {
+    previewVisible.value = true
+    collapsedPreview.value = false
+    return
+  }
+  previewVisible.value = true
+  collapsedPreview.value = false
 }
 
 async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML') {
@@ -572,13 +616,20 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
 
   try {
     if (mode === 'deep') {
-      workspaceMode.value = true
+      deepMode.value = true
       workspaceFiles.value = []
       showSidebar.value = false
+      previewVisible.value = true
+      previewWidth.value = getDeepPreviewWidth()
       await runDeepAnalyze(activeSessionId.value, prompt, controller.signal)
+      if (workspaceFiles.value.length > 0) {
+        previewVisible.value = true
+      }
     } else {
-      workspaceMode.value = false
+      deepMode.value = false
       workspaceFiles.value = []
+      previewVisible.value = true
+      previewWidth.value = getDefaultPreviewWidth()
       if (output === 'sync') {
         await runFastGenerateSync(activeSessionId.value, prompt, format)
       } else {
@@ -654,8 +705,9 @@ function startResize(e: MouseEvent) {
   document.addEventListener('mouseup', onUp)
 }
 
-// 自动打开预览（检测到 HTML 内容时）
+// 自动打开预览（生成完成后、检测到可预览内容时）
 watch(hasPreviewContent, (val) => {
+  if (generating.value) return
   if (val && !previewVisible.value && !collapsedPreview.value) {
     previewVisible.value = true
   }
@@ -758,10 +810,16 @@ async function runFastGenerateSync(sessionId: number, prompt: string, format: Ge
 function appendWorkflowProgress(phaseText: string, event: WorkflowStepEvent): string {
   if (event.type === 'task' && event.data) {
     const task = event.data as WorkflowTask
-    return `${phaseText}- ${task.label ?? '执行任务中...'}\n`
+    const label = task.label ?? event.message ?? '执行任务中...'
+    const line = task.type === 'command' && task.detail
+        ? `- ${label}：${task.detail}`
+        : `- ${label}`
+    if (phaseText.includes(line + '\n')) return phaseText
+    return `${phaseText}${line}\n`
   }
   if (event.type === 'step' && event.message) {
-    return `${phaseText}**${event.message}**\n\n`
+    if (phaseText.includes(event.message + '\n\n')) return phaseText
+    return `${phaseText}${event.message}\n\n`
   }
   return phaseText
 }
@@ -808,7 +866,12 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
       generateId = result.generateId
       cachedPrdContent = result.prdContent ?? ''
       cachedSummary = result.summary ?? ''
-      prdSummary = formatPrdSummary(result)
+      prdSummary = formatPrdSummary({
+        summary: cachedSummary,
+        prdContent: cachedPrdContent,
+        strategy: result.strategy,
+        durationMs: result.durationMs,
+      })
       streamingContent.value = `${phaseText}\n\n${prdSummary}`
       scrollToBottom()
     }
@@ -827,6 +890,8 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
   scrollToBottom()
 
   let codeFiles: CodeFile[] = []
+  let finalStrategy: string | undefined
+  let finalDurationMs: number | undefined
   const continueResponse = await continueWorkflowStream(generateId, {
     prdContent: cachedPrdContent,
     summary: cachedSummary,
@@ -843,15 +908,25 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
       const result = event.data as WorkflowResult
       codeFiles = result.codeFiles ?? []
       workspaceFiles.value = codeFiles
-      if (result.strategy) {
-        phaseText += `\n**策略：** ${result.strategy}\n`
-      }
+      finalStrategy = result.strategy
+      finalDurationMs = result.durationMs
+      prdSummary = formatPrdSummary({
+        summary: cachedSummary,
+        prdContent: cachedPrdContent,
+        strategy: finalStrategy,
+        durationMs: finalDurationMs,
+      })
       if (result.validated != null) {
         phaseText += `**校验：** ${result.validated ? '通过' : '未通过'}\n`
       }
-      streamingContent.value = phaseText
+      streamingContent.value = phaseText + (prdSummary ? `\n\n${prdSummary}` : '')
     }
   })
+
+  const workflowLog = formatWorkflowLog(phaseText)
+  if (workflowLog) {
+    await saveAiMessage(sessionId, null, workflowLog)
+  }
 
   if (prdSummary) {
     await saveAiMessage(sessionId, null, prdSummary)
@@ -859,7 +934,7 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
 
   if (codeFiles.length) {
     const codeContent = formatCodeFilesToContent(codeFiles)
-    const parts = splitAiContent(codeContent)
+    const parts = splitAiContent(codeContent).filter(p => p?.trim())
     for (const part of parts) {
       await saveAiMessage(sessionId, null, part)
     }
@@ -1045,9 +1120,23 @@ function cancelSelectMode() {
   background: #fff;
 }
 
-.main-chat.workspace-mode {
-  flex-direction: row;
-  align-items: stretch;
+.main-chat.deep-mode.with-preview {
+  flex: 0 0 auto;
+}
+
+.col-chat.col-chat-narrow {
+  flex: none;
+  width: 380px;
+  max-width: 42vw;
+  border-right: 1px solid #eceef2;
+}
+
+.col-chat-narrow .msg-list,
+.col-chat-narrow .input-wrap,
+.col-chat-narrow .action-row {
+  max-width: none;
+  width: 100%;
+  margin: 0;
 }
 
 .col-chat {
@@ -1056,24 +1145,6 @@ function cancelSelectMode() {
   flex-direction: column;
   min-width: 0;
   height: 100%;
-}
-
-.col-chat.col-chat-fixed {
-  flex: none;
-  border-right: 1px solid #eceef2;
-}
-
-.col-chat-fixed .msg-list {
-  max-width: none;
-  width: 100%;
-  margin: 0;
-}
-
-.col-chat-fixed .input-wrap,
-.col-chat-fixed .action-row {
-  max-width: none;
-  width: 100%;
-  margin: 0;
 }
 
 .back-bar {
