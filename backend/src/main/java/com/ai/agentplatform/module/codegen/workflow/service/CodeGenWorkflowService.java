@@ -315,7 +315,7 @@ public class CodeGenWorkflowService {
     }
 
     private String buildWorkflowPrompt(String userPrompt, Long sessionId, Long appId) {
-        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId, appId);
         log.debug("工作流加载会话 {} 记忆: 概要={}, 近期{}条",
                 sessionId,
                 memoryContext.hasSessionSummary() ? "有" : "无",

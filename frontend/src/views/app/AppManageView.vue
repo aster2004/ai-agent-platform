@@ -169,10 +169,11 @@
               :custom-request="handleCoverUpload"
             >
               <img
-                v-if="formState.coverImg"
-                :src="resolveCoverUrl(formState.coverImg)"
+                v-if="formState.coverImg && !coverPreviewBroken"
+                :src="coverPreviewSrc"
                 alt="封面预览"
                 class="cover-preview"
+                @error="coverPreviewBroken = true"
               />
               <div v-else class="cover-upload-placeholder">
                 <LoadingOutlined v-if="coverUploading" />
@@ -231,21 +232,21 @@ async function openAppChat(app: AppVO) {
   try {
     const res = await getAppSessionId(app.id)
     if (res.code === 200 && res.data) {
-      router.push(`/chat/session/${res.data}`)
+      router.push({ path: `/chat/session/${res.data}`, query: { from: 'app' } })
       return
     }
 
     const sessRes = await getSessionList(app.id)
     const sessions = sessRes.data ?? []
     if (sessions.length > 0) {
-      router.push(`/chat/session/${sessions[0].id}`)
+      router.push({ path: `/chat/session/${sessions[0].id}`, query: { from: 'app' } })
       return
     }
 
     const allSessRes = await getSessionList()
     const matched = (allSessRes.data ?? []).find((s) => s.sessionTitle === app.appName)
     if (matched) {
-      router.push(`/chat/session/${matched.id}`)
+      router.push({ path: `/chat/session/${matched.id}`, query: { from: 'app' } })
       return
     }
 
@@ -262,6 +263,7 @@ const editingId = ref<number | null>(null)
 const featuredLoadingId = ref<number | null>(null)
 const featuredFilter = ref<number | undefined>(undefined)
 const coverUploading = ref(false)
+const coverPreviewBroken = ref(false)
 const appList = ref<AppVO[]>([])
 let coverPollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -269,6 +271,13 @@ const formState = reactive({
   appName: '',
   description: '',
   coverImg: '',
+})
+
+const coverPreviewSrc = computed(() => {
+  const url = resolveCoverUrl(formState.coverImg)
+  if (!url) return ''
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}v=${encodeURIComponent(formState.coverImg)}`
 })
 
 const pagination = reactive({
@@ -413,6 +422,7 @@ function resetForm() {
   formState.appName = ''
   formState.description = ''
   formState.coverImg = ''
+  coverPreviewBroken.value = false
 }
 
 function openEditModal(record: AppVO) {
@@ -420,6 +430,7 @@ function openEditModal(record: AppVO) {
   formState.appName = record.appName
   formState.description = record.description || ''
   formState.coverImg = record.coverImg || ''
+  coverPreviewBroken.value = false
   modalVisible.value = true
 }
 
@@ -442,6 +453,7 @@ const handleCoverUpload: UploadProps['customRequest'] = async (options) => {
   try {
     const res = await uploadAppCover(file)
     formState.coverImg = res.data
+    coverPreviewBroken.value = false
     message.success('封面上传成功')
     options.onSuccess?.(res.data)
   } catch (e: any) {
@@ -454,6 +466,7 @@ const handleCoverUpload: UploadProps['customRequest'] = async (options) => {
 
 function clearCover() {
   formState.coverImg = ''
+  coverPreviewBroken.value = false
 }
 
 function closeModal() {

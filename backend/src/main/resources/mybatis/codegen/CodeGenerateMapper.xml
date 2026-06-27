@@ -32,4 +32,15 @@
     <select id="countByUserId" resultType="java.lang.Long">
         SELECT COUNT(1) FROM code_generate WHERE user_id = #{userId}
     </select>
+
+    <select id="selectLatestSuccessBySessionId" resultType="com.ai.agentplatform.module.codegen.entity.CodeGenerate">
+        SELECT <include refid="baseColumns"/>
+        FROM code_generate
+        WHERE session_id = #{sessionId}
+          AND generate_status = 1
+          AND code_content IS NOT NULL
+          AND code_content != ''
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
 </mapper>

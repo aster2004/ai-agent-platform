@@ -42,6 +42,13 @@
           :class="{ 'col-chat-fixed': workspaceMode }"
           :style="workspaceMode ? { width: `${columnWidths.chat}px` } : undefined"
       >
+        <div v-if="fromAppManage" class="back-bar">
+          <a-button type="link" class="back-btn" @click="goBackToAppManage">
+            <ArrowLeftOutlined />
+            返回应用管理
+          </a-button>
+        </div>
+
         <!-- 消息列表 -->
         <div class="msg-list" ref="msgListRef">
           <div v-if="loadingHistory" class="loading-tip">加载中...</div>
@@ -203,6 +210,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { ArrowLeftOutlined } from '@ant-design/icons-vue'
 import SessionSidebar from '@/components/chat/SessionSidebar.vue'
 import ChatMessage from '@/components/chat/ChatMessage.vue'
 import AiStreamMessage from '@/components/chat/AiStreamMessage.vue'
@@ -257,6 +265,11 @@ const isDragging = ref(false)
 const msgListRef = ref<HTMLDivElement | null>(null)
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const showScrollToBottom = ref(false)
+const fromAppManage = ref(false)
+
+function goBackToAppManage() {
+  router.push('/app')
+}
 
 // ========== 多选删除 ==========
 const selectMode = ref(false)
@@ -339,6 +352,7 @@ onMounted(async () => {
   // 从 URL 参数获取会话 ID
   const idParam = Number(route.params.sessionId)
   if (idParam && !isNaN(idParam)) {
+    fromAppManage.value = route.query.from === 'app'
     activeSessionId.value = idParam
     await loadMessages(idParam)
 
@@ -1046,6 +1060,17 @@ function cancelSelectMode() {
   max-width: none;
   width: 100%;
   margin: 0;
+}
+
+.back-bar {
+  flex-shrink: 0;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.back-btn {
+  padding-left: 0;
+  font-size: 14px;
 }
 
 /* 开启预览时，聊天区不设固定最大宽度，由 flex 自然分配 */

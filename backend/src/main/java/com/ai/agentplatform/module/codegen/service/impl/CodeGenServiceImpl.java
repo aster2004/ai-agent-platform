@@ -86,7 +86,7 @@ public class CodeGenServiceImpl implements CodeGenService {
         }
 
         // 原有固定格式路径
-        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId, existingAppId);
         String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
         List<ChatMessage> messageList = new ArrayList<>();
@@ -150,7 +150,7 @@ public class CodeGenServiceImpl implements CodeGenService {
         long startTime = System.currentTimeMillis();
         try {
             ChatModel chatModel = modelFactory.getChatModel(realModel);
-            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId, existingAppId);
             String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
             QuickGenSyncAgent agent = AiServices.builder(QuickGenSyncAgent.class)
@@ -269,7 +269,7 @@ public class CodeGenServiceImpl implements CodeGenService {
                 }
 
                 // 原有固定格式流式路径
-                ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+                ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId, existingAppId);
                 String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
 
                 List<ChatMessage> messageList = new ArrayList<>();
@@ -366,7 +366,7 @@ public class CodeGenServiceImpl implements CodeGenService {
 
         try {
             ChatModel chatModel = modelFactory.getChatModel(realModel);
-            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+            ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId, existingAppId);
             String fullPrompt = promptBuilder.buildPrompt(request, memoryContext);
             long startTimestamp = System.currentTimeMillis();
 

@@ -49,11 +49,25 @@ public class PromptBuilder {
 
         String summarySection = buildSessionSummarySection(context.sessionSummary());
         String dialogueSection = buildRecentDialogueSection(context.recentDialogue());
+        String baselineSection = buildIterationBaselineSection(context.iterationBaseline());
 
         return "【系统规则】" + system + "\n"
                 + summarySection
                 + dialogueSection
+                + baselineSection
                 + "【本次需求】" + safeUserPrompt;
+    }
+
+    private String buildIterationBaselineSection(String iterationBaseline) {
+        if (iterationBaseline == null || iterationBaseline.isBlank()) {
+            return "";
+        }
+        return """
+                【当前代码基线】
+                以下为用户当前版本的页面/代码。请严格在此基础上按【本次需求】做最小修改；
+                保留未提及的布局、结构与样式，不要整页重写。
+                
+                """ + iterationBaseline.trim() + "\n";
     }
 
     private String buildSessionSummarySection(String sessionSummary) {
