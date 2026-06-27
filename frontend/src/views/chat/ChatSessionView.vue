@@ -945,8 +945,7 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
     throw new Error('需求文档为空，请重试深度分析')
   }
 
-  message.info('需求文档已生成，正在自动创作应用...')
-  phaseText += `\n**正在根据需求文档生成应用...**\n\n`
+  phaseText += `\n**✅ 需求文档已生成，正在自动创作应用...**\n\n`
   streamingContent.value = phaseText + prdSummary
   scrollToBottom()
 
@@ -987,7 +986,8 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
     for (const part of parts) {
       await saveAiMessage(sessionId, null, part)
     }
-    message.success(`应用生成完成，共 ${codeFiles.length} 个文件`)
+    phaseText += `\n**✅ 应用生成完成，共 ${codeFiles.length} 个文件**\n`
+    streamingContent.value = phaseText + (prdSummary ? `\n\n${prdSummary}` : '')
   } else {
     throw new Error('代码生成完成但未返回文件，请重试')
   }
