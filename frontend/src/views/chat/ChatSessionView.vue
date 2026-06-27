@@ -11,6 +11,7 @@
           @rename-session="handleRenameSession"
           @toggle-sidebar="showSidebar = false"
       />
+
     </div>
 
     <!-- ====== 侧边栏折叠按钮 ====== -->
@@ -34,7 +35,7 @@
     <!-- ====== 主聊天区域（深度分析三栏 / 普通双栏） ====== -->
     <div
         class="main-chat"
-        :class="{ 'with-preview': previewVisible && !workspaceMode, 'workspace-mode': workspaceMode }"
+        :class="{ 'with-preview': showPreviewPopup && !workspaceMode, 'workspace-mode': workspaceMode }"
         ref="workspaceRef"
     >
       <div
@@ -98,7 +99,15 @@
             </div>
           </template>
 
-          <!-- 流式生成中的 AI 消息 -->
+          <!-- 流式多文件：已完成的文件部分（独立气泡） -->
+          <AiStreamMessage
+              v-for="(part, i) in streamedParts"
+              :key="'streamed-' + i"
+              :content="part"
+              :is-streaming="false"
+          />
+
+          <!-- 流式生成中的 AI 消息（当前文件） -->
           <AiStreamMessage
               v-if="streamingContent"
               :content="streamingContent"
@@ -201,15 +210,15 @@
       </template>
     </div>
 
-    <!-- ====== 右侧预览面板（快速生成模式） ====== -->
+    <!-- ====== 右侧预览面板（快速生成模式，内联分栏） ====== -->
     <ChatPreviewPanel
-        v-if="!workspaceMode"
+        v-if="showPreviewPopup && !workspaceMode"
         :content="previewContent"
-        :visible="previewVisible"
+        :visible="true"
         :width="previewWidth"
-        :collapsed="collapsedPreview"
+        :collapsed="false"
         @resize-start="startResize"
-        @toggle="togglePreview"
+        @close="closePreviewPanel"
     />
 
     <!-- 放大查看代码全屏弹窗 -->
@@ -265,7 +274,8 @@ import ColumnResizer from '@/components/chat/ColumnResizer.vue'
 import { getSessionList, getHistoryMsg, saveChatMessage, saveAiMessage, deleteSession, createSession, deleteMessage, renameSession } from '@/api/chat'
 import { generateCodeStream, analyzeWorkflowStream, continueWorkflowStream, generateCode } from '@/api/codegen'
 import { readSseStream } from '@/utils/codegenStream'
-import { splitAiContent } from '@/utils/splitMultiFile'
+import { splitAiContent, formatPartialJsonEntry, regexExtractFiles } from '@/utils/splitMultiFile'
+import { detectFileLang } from '@/utils/formatCode'
 import { formatCodeFilesToContent, formatPrdSummary } from '@/utils/formatCodeFiles'
 import { highlightCode } from '@/utils/syntaxHighlight'
 import { useColumnResize } from '@/composables/useColumnResize'
@@ -290,10 +300,14 @@ const generatingError = ref('')
 const lastPrompt = ref('')
 const lastMode = ref<'fast' | 'deep'>('fast')
 // 约束为字面量类型，修复TS2322
-const lastFormat = ref<GenerateFormat>('HTML')
+const lastFormat = ref<GenerateFormat>('GENERAL')
 const abortController = ref<AbortController | null>(null)
-const previewVisible = ref(false)
-const collapsedPreview = ref(false)
+const showPreviewPopup = ref(false)
+/** 流式多文件拆分：已完成的文件部分（展示为独立气泡） */
+const streamedParts = ref<string[]>([])
+const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
+const previewWidth = ref(getDefaultPreviewWidth())
+const isDragging = ref(false)
 const workspaceMode = ref(false)
 const workspaceFiles = ref<CodeFile[]>([])
 const workspaceRef = ref<HTMLElement | null>(null)
@@ -303,12 +317,7 @@ const { widths: columnWidths, beginResize } = useColumnResize(
     { chat: 280, tree: 180 },
     320,
 )
-const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
-const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
-const previewWidth = ref(getDefaultPreviewWidth())
-const isDragging = ref(false)
 const msgListRef = ref<HTMLDivElement | null>(null)
-const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 const showScrollToBottom = ref(false)
 const fromAppManage = ref(false)
 
@@ -426,7 +435,7 @@ onMounted(async () => {
     const mode = (route.query.mode as string) || 'fast'
     const output = (route.query.output as string) || 'stream'
     // 类型断言修复TS报错
-    const format = (route.query.format || 'HTML') as GenerateFormat
+    const format = (route.query.format || 'GENERAL') as GenerateFormat
     if (prompt && msgList.value.length <= 1) {
       lastPrompt.value = prompt
       lastMode.value = mode as 'fast' | 'deep'
@@ -439,6 +448,9 @@ onMounted(async () => {
 
     // 预览由用户点击 AI 消息中的预览按钮手动触发
   }
+
+  // 注册消息列表滚动监听
+  msgListRef.value?.addEventListener('scroll', onMsgListScroll, { passive: true })
 })
 
 // 监听路由变化（切换会话）
@@ -454,8 +466,8 @@ watch(() => route.params.sessionId, async (newId) => {
     streamingContent.value = ''
     generating.value = false
     generatingError.value = ''
-    previewVisible.value = false
-    collapsedPreview.value = false
+    showPreviewPopup.value = false
+    streamedParts.value = []
     workspaceMode.value = false
     workspaceFiles.value = []
     activePreviewMsgId.value = null
@@ -551,8 +563,8 @@ async function handleSend({ content, mode, output, format }: { content: string; 
   // 2. 触发 AI 生成
   lastPrompt.value = content
   lastMode.value = mode
-  lastFormat.value = format || 'HTML'
-  await triggerAiGenerate(content, mode, output, format || 'HTML')
+  lastFormat.value = format || 'GENERAL'
+  await triggerAiGenerate(content, mode, output, format || 'GENERAL')
 }
 
 async function handleResend(content: string) {
@@ -603,11 +615,49 @@ async function handleRetryAi(aiMsg: ChatMessageType) {
 }
 
 // ========== AI 生成核心 ==========
-/** 点击AI消息中的预览按钮 → 打开右侧预览面板 */
+/** 点击AI消息中的预览按钮 → 打开右侧预览面板，收起侧边栏 */
 function handleAiPreview(msgId: number) {
   activePreviewMsgId.value = msgId
-  previewVisible.value = true
-  collapsedPreview.value = false
+  showPreviewPopup.value = true
+  showSidebar.value = false
+}
+
+/** 关闭预览面板，恢复侧边栏 */
+function closePreviewPanel() {
+  showPreviewPopup.value = false
+  showSidebar.value = true
+}
+
+// ========== 预览面板：拖拽调整宽度 ==========
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragging.value = true
+  document.body.classList.add('resizing-preview')
+  document.body.style.userSelect = 'none'
+
+  const startX = e.clientX
+  const startWidth = previewWidth.value
+  const minWidth = 280
+  const maxWidth = Math.round(window.innerWidth * 0.65)
+
+  const onMove = (ev: MouseEvent) => {
+    const delta = startX - ev.clientX
+    previewWidth.value = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
+  }
+
+  const onUp = () => cleanup()
+
+  const cleanup = () => {
+    isDragging.value = false
+    document.body.classList.remove('resizing-preview')
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
 }
 
 /** 引用代码 → 显示在输入框上方卡片 */
@@ -638,7 +688,7 @@ async function handleEnlargeCopy() {
   }
 }
 
-async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'HTML') {
+async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: GenerateFormat = 'GENERAL') {
   if (!activeSessionId.value) return
   generating.value = true
   streamingContent.value = ''
@@ -690,48 +740,6 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
   } catch { /* ignore */ }
 }
 
-// ========== 预览面板：拖拽 + 折叠 ==========
-function togglePreview() {
-  if (previewVisible.value) {
-    previewVisible.value = false
-    collapsedPreview.value = true
-  } else {
-    previewVisible.value = true
-    collapsedPreview.value = false
-  }
-}
-
-function startResize(e: MouseEvent) {
-  e.preventDefault()
-  e.stopPropagation()
-  isDragging.value = true
-  document.body.classList.add('resizing-preview')
-  document.body.style.userSelect = 'none'
-
-  const startX = e.clientX
-  const startWidth = previewWidth.value
-  const maxWidth = getMaxPreviewWidth()
-  const minWidth = 200
-
-  const onMove = (ev: MouseEvent) => {
-    const delta = startX - ev.clientX
-    previewWidth.value = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
-  }
-
-  const onUp = () => cleanup()
-
-  const cleanup = () => {
-    isDragging.value = false
-    document.body.classList.remove('resizing-preview')
-    document.body.style.userSelect = ''
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-  }
-
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
-}
-
 /** 用户点击停止按钮 */
 async function stopGeneration() {
   const controller = abortController.value
@@ -743,6 +751,7 @@ async function stopGeneration() {
 
   // 触发 abort
   controller.abort()
+  streamedParts.value = []
 
   // 保存部分内容
   if (partialContent && sessionId) {
@@ -754,9 +763,45 @@ async function stopGeneration() {
 }
 
 /**
+ * 从流式 JSON 中提取当前正在生成的文件代码（用于流式气泡实时展示）
+ */
+function extractStreamingCode(rawJson: string, completeFiles: Array<{ path: string; content: string }> | null): string {
+  if (!completeFiles || completeFiles.length === 0) {
+    // 去除开头的 [ 或 [{，得到 { 开头的文件条目
+    const cleaned = rawJson.replace(/^\[+\{?/, '{')
+    if (!cleaned.startsWith('{')) return cleaned || rawJson
+    return formatPartialJsonEntry(cleaned) || cleaned
+  }
+  const lastFile = completeFiles[completeFiles.length - 1]
+  const idx = rawJson.indexOf(`"${lastFile.path}"`)
+  if (idx < 0) {
+    const entryRe = /\{[^{}]*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"/g
+    let lastEnd = 0
+    let m: RegExpExecArray | null
+    while ((m = entryRe.exec(rawJson)) !== null) {
+      lastEnd = m.index
+    }
+    if (lastEnd > 0) {
+      const trailing = rawJson.slice(lastEnd)
+      if (trailing.trim().length > 2) {
+        return formatPartialJsonEntry(trailing) || trailing
+      }
+    }
+    return rawJson.replace(/^\[+\{?/, '').trim() || rawJson
+  }
+  const afterLastPath = rawJson.slice(idx + lastFile.path.length + 2)
+  const nextEntryMatch = afterLastPath.match(/\{[^{}]*"path"\s*:\s*"[^"]+"\s*,\s*"content"\s*:\s*"/)
+  if (nextEntryMatch) {
+    const nextEntry = afterLastPath.slice(nextEntryMatch.index!)
+    return formatPartialJsonEntry(nextEntry) || nextEntry
+  }
+  return rawJson.replace(/^\[+\{?/, '').trim() || rawJson
+}
+
+/**
  * 快速生成模式：流式调用 /api/codegen/stream
  */
-async function runFastGenerate(sessionId: number, prompt: string, format: GenerateFormat = 'HTML', signal?: AbortSignal) {
+async function runFastGenerate(sessionId: number, prompt: string, format: GenerateFormat = 'GENERAL', signal?: AbortSignal) {
   const response = await generateCodeStream({
     prompt,
     sessionId,
@@ -764,33 +809,51 @@ async function runFastGenerate(sessionId: number, prompt: string, format: Genera
   }, signal)
 
   let receivedContent = ''
+  let savedFileCount = 0
+  streamedParts.value = []
 
   await readSseStream(response, (eventName, data) => {
     if (eventName === 'code_chunk') {
       receivedContent += data
-      streamingContent.value = receivedContent
+      if (receivedContent.trim().startsWith('[{') && receivedContent.includes('"path"') && receivedContent.includes('"content"')) {
+        const completeFiles = regexExtractFiles(receivedContent) || []
+        if (completeFiles.length > savedFileCount) {
+          const newFiles = completeFiles.slice(savedFileCount)
+          for (const f of newFiles) {
+            const lang = detectFileLang(f.path)
+            const formatted = `## 📁 ${f.path}\n\n\`\`\`${lang}\n${f.content}\n\`\`\``
+            streamedParts.value = [...streamedParts.value, formatted]
+          }
+          savedFileCount = completeFiles.length
+        }
+        streamingContent.value = extractStreamingCode(receivedContent, completeFiles.length > 0 ? completeFiles : null)
+      } else if (receivedContent.trim().startsWith('[')) {
+        // JSON 数组尚未完整（"content" 字段还没出现），不显示原始 JSON 前缀
+        streamingContent.value = '正在生成...'
+      } else {
+        streamingContent.value = receivedContent
+      }
       scrollToBottom()
     } else if (eventName === 'error') {
       throw new Error(data)
     }
   })
 
-  // 保存 AI 回复 — 多文件拆分为多条消息，每条一个气泡
   if (receivedContent) {
     const parts = splitAiContent(receivedContent)
     for (const part of parts) {
       await saveAiMessage(sessionId, null, part)
     }
   }
-  // 重新加载消息列表显示完整记录
   await loadMessages(sessionId)
   streamingContent.value = ''
+  streamedParts.value = []
 }
 
 /**
  * 快速生成 - 同步模式：一次性返回完整结果
  */
-async function runFastGenerateSync(sessionId: number, prompt: string, format: GenerateFormat = 'HTML') {
+async function runFastGenerateSync(sessionId: number, prompt: string, format: GenerateFormat = 'GENERAL') {
   streamingContent.value = '正在生成...'
 
   const res = await generateCode({
@@ -968,11 +1031,6 @@ function onMsgListScroll() {
   showScrollToBottom.value = distanceFromBottom > 120
 }
 
-// 挂载 / 卸载滚动监听
-onMounted(() => {
-  msgListRef.value?.addEventListener('scroll', onMsgListScroll, { passive: true })
-})
-
 onUnmounted(() => {
   msgListRef.value?.removeEventListener('scroll', onMsgListScroll)
 })
@@ -1109,6 +1167,17 @@ function cancelSelectMode() {
 .main-chat.workspace-mode {
   flex-direction: row;
   align-items: stretch;
+}
+
+/* 开启预览时，聊天区不设固定最大宽度，由 flex 自然分配 */
+.main-chat.with-preview .msg-list {
+  max-width: none;
+}
+
+.main-chat.with-preview .input-wrap,
+.main-chat.with-preview .action-row,
+.main-chat.with-preview .quote-card {
+  max-width: none;
 }
 
 .col-chat {

@@ -7,6 +7,7 @@
  */
 
 import { detectFileLang, detectCodeLang } from './formatCode'
+import { regexExtractFiles } from './splitMultiFile'
 
 /**
  * 检测 AI 返回内容是否为多文件 JSON 数组格式（Vue/Multi-file 策略）
@@ -68,7 +69,24 @@ export function normalizeAiContent(raw: string): string {
 function tryExtractJsonFiles(text: string): string | null {
     const jsonStart = text.indexOf('[{')
     const jsonEnd = text.lastIndexOf('}]')
-    if (jsonStart < 0 || jsonEnd <= jsonStart) return null
+    if (jsonStart < 0) return null
+
+    // 流式场景：数组尚未闭合（}] 未到达），用正则提取已完成文件
+    if (jsonEnd <= jsonStart) {
+        const partial = text.slice(jsonStart)
+        const files = regexExtractFiles(partial)
+        if (!files || files.length === 0) return null
+        const parts: string[] = []
+        for (const file of files) {
+            const lang = detectFileLang(file.path)
+            parts.push(`## 📁 ${file.path}`)
+            parts.push('```' + lang)
+            parts.push(file.content)
+            parts.push('```')
+            parts.push('')
+        }
+        return parts.join('\n').trim()
+    }
 
     const candidate = text.slice(jsonStart, jsonEnd + 2)
     try {

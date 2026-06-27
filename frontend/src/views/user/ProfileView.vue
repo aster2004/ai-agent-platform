@@ -185,8 +185,14 @@ const checkinStats = ref({
   monthCheckins: 0
 })
 
-const newbieTasks = ref({
-  tasks: [] as any[],
+const newbieTasks = ref<{
+  tasks: Array<{ name: string; points: number; description: string; type: string; completed: boolean }>
+  completedCount: number
+  totalCount: number
+  totalPoints: number
+  earnedPoints: number
+}>({
+  tasks: [],
   completedCount: 0,
   totalCount: 0,
   totalPoints: 0,

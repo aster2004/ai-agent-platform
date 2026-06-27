@@ -277,7 +277,9 @@ const completedHighlightedCode = computed(() => {
 // ---- 流式相关 ----
 
 const streamLangLabel = computed(() => {
-  const c = props.content?.trim() || ''
+  // 先规范化内容（将多文件 JSON/裸 Vue 等转为标准 markdown 格式），再检测语言
+  const raw = props.content?.trim() || ''
+  const c = normalizeAiContent(raw)
 
   // 流式中有 ## 📁 文件标题 → 提取文件名类型
   const headerLang = extractFileHeaderLang(c)
@@ -295,8 +297,10 @@ const streamLangLabel = computed(() => {
 })
 
 const streamHighlighted = computed(() => {
-  const c = props.content || ''
-  if (!c.trim()) return ''
+  const raw = props.content || ''
+  if (!raw.trim()) return ''
+  // 先规范化内容：将多文件 JSON、裸 HTML/Vue 等转为标准 markdown 代码块格式
+  const c = normalizeAiContent(raw)
   const lang = highlightLangFromLabel(streamLangLabel.value)
   let code = c
   code = code.replace(/^```\w*\s*\n?/, '').replace(/\n?```$/, '')
@@ -384,23 +388,7 @@ function handleCopyToClipboard() {
   })
 }
 
-function openInNewWindow() {
-  const code = codeText.value
-  if (!code) return
-  const win = window.open('', '_blank')
-  if (win) {
-    win.document.open()
-    // 如果是完整 HTML 直接渲染，否则显示代码
-    if (/^<(!DOCTYPE|html)/i.test(code)) {
-      win.document.write(code)
-    } else {
-      win.document.write('<html><body><pre style="padding:20px;font-family:monospace;white-space:pre-wrap;">' +
-          code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
-          '</pre></body></html>')
-    }
-    win.document.close()
-  }
-}
+
 </script>
 
 <style scoped>

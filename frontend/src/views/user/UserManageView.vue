@@ -70,12 +70,12 @@ onMounted(() => {
 
 async function loadUserList() {
   try {
-    const params: { page: number; size: number; keyword?: string } = {
-      page: pagination.value.current - 1,
-      size: pagination.value.pageSize
+    const params: { pageNum: number; pageSize: number; username?: string } = {
+      pageNum: pagination.value.current - 1,
+      pageSize: pagination.value.pageSize
     }
     if (searchKeyword.value.trim()) {
-      params.keyword = searchKeyword.value.trim()
+      params.username = searchKeyword.value.trim()
     }
     const res = await getUserList(params)
     dataSource.value = res.data.content

@@ -9,6 +9,7 @@
             class="nav-menu"
             @click="handleMenuClick"
         >
+
           <!-- 成员7：新增首页导航菜单 -->
           <a-menu-item key="/chat">
             <HomeOutlined />

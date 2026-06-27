@@ -27,21 +27,63 @@ export function splitAiContent(raw: string): string[] {
 
   // ---- 策略1：JSON 数组 [{path, content}] ----
   const jsonFiles = tryExtractJsonFiles(trimmed)
-  if (jsonFiles && jsonFiles.length > 1) {
-    return jsonFiles.map(f => formatFileMessage(f.path, f.content))
+  if (jsonFiles && jsonFiles.length >= 1) {
+    // 找到所有文件条目的起始位置（含不完整的）
+    const entryRe = /\{[^{}]*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"/g
+    const entryStarts: number[] = []
+    let em: RegExpExecArray | null
+    while ((em = entryRe.exec(trimmed)) !== null) {
+      entryStarts.push(em.index)
+    }
+
+    const parts: string[] = []
+
+    // 首个文件前的文字说明（过滤纯 JSON 语法字符，避免 [ / [{ 等被当作有效内容）
+    if (entryStarts.length > 0 && entryStarts[0] > 0) {
+      const intro = trimmed.slice(0, entryStarts[0]).trim()
+      if (intro && !/^[\s\[\]\{\},:"]+$/.test(intro)) parts.push(intro)
+    }
+
+    // 已完成文件 → 格式化为独立气泡内容
+    parts.push(...jsonFiles.map(f => formatFileMessage(f.path, f.content)))
+
+    // 尾随不完整内容（流式时下一个文件的开头部分）
+    // 提取文件名和代码片段，格式化为规范 markdown 代码块，保证流式渲染效果
+    if (jsonFiles.length < entryStarts.length) {
+      const incompleteStart = entryStarts[jsonFiles.length]
+      const rawEntry = trimmed.slice(incompleteStart)
+      const formatted = formatPartialJsonEntry(rawEntry)
+      if (formatted) parts.push(formatted)
+    }
+
+    if (parts.length >= 2) return parts
   }
 
-  // ---- 策略2：Markdown ## 文件标题 + 代码块（≥2个文件） ----
+  // ---- 策略2：Markdown ## 文件标题 + 代码块 ----
   const mdFiles = tryExtractMarkdownFiles(trimmed)
-  if (mdFiles && mdFiles.length > 1) {
+  if (mdFiles && mdFiles.length >= 1) {
     // 检查标题之前是否有文字说明
     const firstHeaderIdx = trimmed.search(/##\s+(?:📁\s*)?[^\n]+?\s*\n\s*```/)
     const intro = firstHeaderIdx > 0 ? trimmed.slice(0, firstHeaderIdx).trim() : ''
 
+    // 找到最后一个已提取文件的代码块结束位置
+    let lastEnd = 0
+    const blockPattern = /##\s+(?:📁\s*)?[^\n]+?\s*\n\s*```[\s\S]*?```/g
+    let bm: RegExpExecArray | null
+    while ((bm = blockPattern.exec(trimmed)) !== null) {
+      lastEnd = bm.index + bm[0].length
+    }
+
+    // 尾随内容（流式时可能是不完整的下一个文件）
+    const trailing = trimmed.slice(lastEnd).trim()
+
     const parts: string[] = []
     if (intro) parts.push(intro)
     parts.push(...mdFiles.map(f => formatFileMessage(f.path, f.content)))
-    return parts
+    if (trailing) parts.push(trailing)
+
+    // 至少拆分为 2 个部分（或单文件后有尾随内容）才返回
+    if (parts.length >= 2) return parts
   }
 
   // ---- 策略3：混合内容（文字说明 + 多个 markdown 代码块） ----
@@ -104,7 +146,13 @@ export function tryExtractJsonFiles(text: string): Array<{ path: string; content
   // 定位 JSON 数组边界
   const jsonStart = jsonText.indexOf('[{')
   const jsonEnd = jsonText.lastIndexOf('}]')
-  if (jsonStart < 0 || jsonEnd <= jsonStart) return null
+  if (jsonStart < 0) return null
+
+  // 流式场景：数组尚未闭合（}] 未到达），用正则提取已完成文件
+  if (jsonEnd <= jsonStart) {
+    const partial = jsonText.slice(jsonStart)
+    return regexExtractFiles(partial)
+  }
 
   const candidate = jsonText.slice(jsonStart, jsonEnd + 2)
 
@@ -156,6 +204,7 @@ export function regexExtractFiles(text: string): Array<{ path: string; content: 
     let content = ''
     let inString = false
     let escaped = false
+    let stringClosed = false
 
     for (let j = matchEnd; j < text.length; j++) {
       const ch = text[j]
@@ -168,6 +217,7 @@ export function regexExtractFiles(text: string): Array<{ path: string; content: 
         while (k < text.length && /\s/.test(text[k])) k++
         if (k < text.length && (text[k] === '}' || text[k] === ',')) {
           inString = false
+          stringClosed = true
           break
         }
         content += ch
@@ -176,13 +226,15 @@ export function regexExtractFiles(text: string): Array<{ path: string; content: 
       if (inString) { content += ch }
     }
 
-    if (content) {
+    // 仅当内容字符串正确闭合时才加入（流式时最后一个文件可能不完整）
+    if (content && stringClosed) {
+      // 注意：\\\\ 必须最先处理，否则 \\n 中的 \\ 会被 \\n 规则错误消费
       content = content
+          .replace(/\\\\/g, '\\')
           .replace(/\\n/g, '\n')
           .replace(/\\t/g, '\t')
           .replace(/\\r/g, '\r')
           .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\')
           .replace(/\\u[\da-fA-F]{4}/g, (u) => String.fromCharCode(parseInt(u.slice(2), 16)))
       files.push({ path, content })
     }
@@ -218,6 +270,40 @@ function formatFileMessage(path: string | undefined, code: string, lang?: string
     return `## 📁 ${path}\n\n\`\`\`${l}\n${code}\n\`\`\``
   }
   return `\`\`\`${l}\n${code}\n\`\`\``
+}
+
+/**
+ * 将流式中的不完整 JSON 文件条目格式化为规范 markdown 代码块
+ * 输入如：{"path":"style.css","content":"body {\n  margin
+ * 输出如：## 📁 style.css\n\n```css\nbody {\n  margin\n```
+ */
+export function formatPartialJsonEntry(rawEntry: string): string | null {
+  // 提取文件名
+  const pathMatch = rawEntry.match(/"path"\s*:\s*"([^"]+)"/)
+  const path = pathMatch ? pathMatch[1] : 'file'
+
+  // 提取 "content":" 之后的部分
+  const contentMatch = rawEntry.match(/"content"\s*:\s*"/)
+  if (!contentMatch) return null
+
+  const codeStart = contentMatch.index! + contentMatch[0].length
+  let code = rawEntry.slice(codeStart)
+
+  // 去除尾部未闭合的 JSON 片段（末尾的反斜杠转义残余等）
+  code = code.replace(/\\?$/, '')
+
+  // JSON 转义还原（\\\\ 必须最先处理）
+  code = code
+      .replace(/\\\\/g, '\\')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\"/g, '"')
+
+  if (!code.trim()) return null
+
+  const lang = detectFileLang(path)
+  return `## 📁 ${path}\n\n\`\`\`${lang}\n${code}\n\`\`\``
 }
 
 /**
