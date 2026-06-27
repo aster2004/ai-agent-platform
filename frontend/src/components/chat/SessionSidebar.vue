@@ -1,26 +1,30 @@
 <template>
   <div class="sidebar">
-  <!-- 顶部工具栏：边栏切换 -->
+    <!-- 顶部工具栏（深色板块） -->
     <div class="sidebar-toolbar">
-      <a-tooltip placement="bottom" title="收起边栏" color="#1f1f1f">
-        <button class="toolbar-btn" @click="$emit('toggle-sidebar')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="3" ry="3"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-          </svg>
-        </button>
-      </a-tooltip>
-      <a-tooltip placement="bottom" title="开启新对话" color="#1f1f1f">
-        <button class="toolbar-btn" @click="$emit('create-session')">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="16"></line>
-            <line x1="8" y1="12" x2="16" y2="12"></line>
-          </svg>
-        </button>
-      </a-tooltip>
+      <span class="toolbar-label">对话</span>
+      <div class="toolbar-actions">
+        <a-tooltip placement="bottom" title="收起边栏" color="#1f1f1f">
+          <button class="toolbar-btn" @click="$emit('toggle-sidebar')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="3" ry="3"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+        </a-tooltip>
+        <a-tooltip placement="bottom" title="开启新对话" color="#1f1f1f">
+          <button class="toolbar-btn new-btn" @click="$emit('create-session')">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="16"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+          </button>
+        </a-tooltip>
+      </div>
     </div>
 
+    <!-- 会话列表（浅色板块） -->
     <div class="session-list">
       <template v-for="group in groupedSessions" :key="group.label">
         <div class="group-label">{{ group.label }}</div>
@@ -209,49 +213,76 @@ const confirmRename = () => {
 <style scoped>
 .sidebar {
   width: 260px;
-  padding: 16px 12px 20px;
-  background-color: #f7f8fa;
   position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border-right: 1px solid #eceef2;
+  border-right: 1px solid #e0e3e8;
+  border-radius: 0 16px 16px 0;
+  overflow: hidden;
 }
 
+/* ====== 顶部工具栏（深灰底色） ====== */
 .sidebar-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-bottom: 12px;
-  padding: 0 4px;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #e4e6eb;
+  flex-shrink: 0;
+}
+
+.toolbar-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #3a3d45;
+  letter-spacing: 0.3px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .toolbar-btn {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: transparent;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #555;
-  transition: background 0.15s;
+  color: #5f6368;
+  transition: all 0.15s;
 }
 
 .toolbar-btn:hover {
-  background: #eceef2;
+  background: #d0d3d9;
+  color: #333;
 }
 
+.new-btn {
+  color: #1677ff;
+}
+
+.new-btn:hover {
+  background: #c7d9f7;
+  color: #0958d9;
+}
+
+/* ====== 会话列表（浅灰底色） ====== */
 .session-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
   flex: 1;
   overflow-y: auto;
-  padding-right: 2px;
+  padding: 8px 12px 16px;
+  background-color: #f5f6f8;
 }
 
 .session-list::-webkit-scrollbar {
@@ -271,7 +302,7 @@ const confirmRename = () => {
 
 .session-item {
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -282,11 +313,11 @@ const confirmRename = () => {
 }
 
 .session-item:hover {
-  background-color: #eceef2;
+  background-color: #e8eaef;
 }
 
 .session-item.active {
-  background-color: #e8eeff;
+  background-color: #dce3f2;
 }
 
 .session-item.active .session-title {

@@ -18,21 +18,18 @@ export interface RegisterParams {
   avatar?: string
 }
 
-// 登录返回VO，修正嵌套层级、userId→id、补充status、level改为string
+// 登录返回VO（后端返回扁平结构）
 export interface LoginVO {
   token: string
-  userInfo: {
-    id: number
-    username: string
-    nickname: string
-    email: string | null
-    phone: string | null
-    avatar: string | null
-    role: UserRole
-    status: UserStatus
-    points: number
-    level: string
-  }
+  userId: number
+  username: string
+  nickname: string
+  email: string | null
+  phone: string | null
+  avatar: string | null
+  role: UserRole
+  points: number
+  level: string
 }
 
 // 用户列表分页参数：对齐标准pageNum/pageSize，替换keyword为username，补充status筛选

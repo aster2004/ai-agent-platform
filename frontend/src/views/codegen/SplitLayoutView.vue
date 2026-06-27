@@ -31,7 +31,7 @@
     </div>
 
     <!-- ====== 主聊天区域 ====== -->
-    <div class="main-chat" :class="{ 'with-preview': previewVisible }">
+    <div class="main-chat" :class="{ 'with-preview': showPreviewPopup }">
       <!-- 消息列表 -->
       <div class="msg-list" ref="msgListRef">
         <div v-if="loadingHistory" class="loading-tip">加载中...</div>
@@ -60,7 +60,15 @@
           </div>
         </template>
 
-        <!-- 流式生成中的 AI 消息 -->
+        <!-- 流式多文件：已完成的文件部分（独立气泡） -->
+        <AiStreamMessage
+            v-for="(part, i) in streamedParts"
+            :key="'streamed-' + i"
+            :content="part"
+            :is-streaming="false"
+        />
+
+        <!-- 流式生成中的 AI 消息（当前文件） -->
         <AiStreamMessage
             v-if="streamingContent"
             :content="streamingContent"
@@ -97,14 +105,15 @@
       </div>
     </div>
 
-    <!-- ====== 右侧预览面板（内置拖拽把手 + 折叠按钮） ====== -->
+    <!-- ====== 右侧预览面板（内联分栏，可拖拽调整宽度） ====== -->
     <ChatPreviewPanel
+        v-if="showPreviewPopup"
         :content="previewContent"
-        :visible="previewVisible"
+        :visible="true"
         :width="previewWidth"
-        :collapsed="collapsedPreview"
+        :collapsed="false"
         @resize-start="startResize"
-        @toggle="togglePreview"
+        @close="closePreviewPanel"
     />
   </div>
 </template>
@@ -137,16 +146,15 @@ const streamingContent = ref('')
 const generatingError = ref('')
 const lastPrompt = ref('')
 const lastMode = ref<'fast' | 'deep'>('fast')
-const lastFormat = ref('HTML')
+const lastFormat = ref<'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL'>('GENERAL')
 const abortController = ref<AbortController | null>(null)
-const previewVisible = ref(false)
-const collapsedPreview = ref(false)
-const getDefaultPreviewWidth = () => Math.max(360, Math.round(window.innerWidth * 0.50))
-const getMaxPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.50))
+const showPreviewPopup = ref(false)
+/** 流式多文件拆分：已完成的文件部分（展示为独立气泡） */
+const streamedParts = ref<string[]>([])
+const getDefaultPreviewWidth = () => Math.max(400, Math.round(window.innerWidth * 0.45))
 const previewWidth = ref(getDefaultPreviewWidth())
 const isDragging = ref(false)
 const msgListRef = ref<HTMLDivElement | null>(null)
-const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null)
 
 /** 当前预览面板对应的消息 ID（null = 自动跟随最新） */
 const activePreviewMsgId = ref<number | null>(null)
@@ -201,7 +209,7 @@ onMounted(async () => {
     const prompt = route.query.prompt as string
     const mode = (route.query.mode as string) || 'fast'
     const output = (route.query.output as string) || 'stream'
-    const format = (route.query.format as string) || 'HTML'
+    const format = (route.query.format as string || 'GENERAL') as 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL'
     if (prompt && msgList.value.length <= 1) {
       lastPrompt.value = prompt
       lastMode.value = mode as 'fast' | 'deep'
@@ -212,10 +220,7 @@ onMounted(async () => {
     // 清除 URL 中的 query 参数（保留干净路径）
     router.replace({ path: `/chat/session/${idParam}` })
 
-    // 检查历史消息中是否有 HTML 可预览
-    if (hasPreviewContent.value) {
-      previewVisible.value = true
-    }
+    // 预览由用户点击 AI 消息手动触发
   }
 })
 
@@ -232,8 +237,8 @@ watch(() => route.params.sessionId, async (newId) => {
     streamingContent.value = ''
     generating.value = false
     generatingError.value = ''
-    previewVisible.value = false
-    collapsedPreview.value = false
+    showPreviewPopup.value = false
+    streamedParts.value = []
     activePreviewMsgId.value = null
     await loadMessages(id)
   }
@@ -282,7 +287,7 @@ async function handleDeleteSession(delId: number) {
 }
 
 // ========== 发送消息 ==========
-async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: string }) {
+async function handleSend({ content, mode, output, format }: { content: string; mode: 'fast' | 'deep'; output: string; format?: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL' }) {
   if (!activeSessionId.value || generating.value) return
 
   // 1. 保存用户消息
@@ -307,8 +312,8 @@ async function handleSend({ content, mode, output, format }: { content: string; 
   // 2. 触发 AI 生成
   lastPrompt.value = content
   lastMode.value = mode
-  lastFormat.value = format || 'HTML'
-  await triggerAiGenerate(content, mode, output, format || 'HTML')
+  lastFormat.value = format || 'GENERAL'
+  await triggerAiGenerate(content, mode, output, format || 'GENERAL')
 }
 
 async function handleResend(content: string) {
@@ -334,12 +339,53 @@ function isLastAiMsg(msgId: number): boolean {
   return false
 }
 
-/** 手动选择某条 AI 消息显示在预览面板 */
+/** 手动选择某条 AI 消息 → 打开右侧预览面板，收起侧边栏 */
 function selectPreview(msgId: number) {
   activePreviewMsgId.value = msgId
+  showPreviewPopup.value = true
+  showSidebar.value = false
 }
 
-async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format = 'HTML') {
+/** 关闭预览面板，恢复侧边栏 */
+function closePreviewPanel() {
+  showPreviewPopup.value = false
+  showSidebar.value = true
+}
+
+// ========== 预览面板：拖拽调整宽度 ==========
+function startResize(e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragging.value = true
+  document.body.classList.add('resizing-preview')
+  document.body.style.userSelect = 'none'
+
+  const startX = e.clientX
+  const startWidth = previewWidth.value
+  const minWidth = 280
+  const maxWidth = Math.round(window.innerWidth * 0.65)
+
+  const onMove = (ev: MouseEvent) => {
+    const delta = startX - ev.clientX
+    previewWidth.value = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
+  }
+
+  const onUp = () => cleanup()
+
+  const cleanup = () => {
+    isDragging.value = false
+    document.body.classList.remove('resizing-preview')
+    document.body.style.userSelect = ''
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+
+async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output = 'stream', format: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL' = 'GENERAL') {
   if (!activeSessionId.value) return
   generating.value = true
   streamingContent.value = ''
@@ -360,10 +406,7 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
     } else {
       await runFastGenerate(activeSessionId.value, prompt, format, controller.signal)
     }
-    // 生成完成后自动弹出预览（如果有 HTML 内容）
-    if (hasPreviewContent.value) {
-      previewVisible.value = true
-    }
+    // 预览由用户点击 AI 消息手动触发
   } catch (e: any) {
     // 用户主动停止 → 不是错误，静默处理
     if (e instanceof DOMException && e.name === 'AbortError') {
@@ -387,56 +430,6 @@ async function triggerAiGenerate(prompt: string, mode: 'fast' | 'deep', output =
   } catch { /* ignore */ }
 }
 
-// ========== 预览面板：拖拽 + 折叠 ==========
-function togglePreview() {
-  if (previewVisible.value) {
-    previewVisible.value = false
-    collapsedPreview.value = true
-  } else {
-    previewVisible.value = true
-    collapsedPreview.value = false
-  }
-}
-
-function startResize(e: MouseEvent) {
-  e.preventDefault()
-  e.stopPropagation()
-  isDragging.value = true
-  document.body.classList.add('resizing-preview')
-  document.body.style.userSelect = 'none'
-
-  const startX = e.clientX
-  const startWidth = previewWidth.value
-  const maxWidth = getMaxPreviewWidth()
-  const minWidth = 200
-
-  const onMove = (ev: MouseEvent) => {
-    const delta = startX - ev.clientX
-    const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta))
-    previewWidth.value = newWidth
-  }
-
-  const onUp = () => cleanup()
-
-  const cleanup = () => {
-    isDragging.value = false
-    document.body.classList.remove('resizing-preview')
-    document.body.style.userSelect = ''
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
-  }
-
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
-}
-
-// 自动打开预览（检测到 HTML 内容时）
-watch(hasPreviewContent, (val) => {
-  if (val && !previewVisible.value && !collapsedPreview.value) {
-    previewVisible.value = true
-  }
-})
-
 /** 用户点击停止按钮 */
 async function stopGeneration() {
   const controller = abortController.value
@@ -448,6 +441,7 @@ async function stopGeneration() {
 
   // 触发 abort
   controller.abort()
+  streamedParts.value = []
 
   // 保存部分内容
   if (partialContent && sessionId) {
@@ -456,7 +450,7 @@ async function stopGeneration() {
       await loadMessages(sessionId)
       // 停止后也检查是否有可预览内容
       if (hasPreviewContent.value) {
-        previewVisible.value = true
+        showPreviewPopup.value = true
       }
     } catch { /* ignore */ }
   }
@@ -465,7 +459,7 @@ async function stopGeneration() {
 /**
  * 快速生成模式：流式调用 /api/codegen/stream
  */
-async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML', signal?: AbortSignal) {
+async function runFastGenerate(sessionId: number, prompt: string, format: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL' = 'HTML', signal?: AbortSignal) {
   const response = await generateCodeStream({
     prompt,
     sessionId,
@@ -478,7 +472,25 @@ async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML
   await readSseStream(response, (eventName, data) => {
     if (eventName === 'code_chunk') {
       receivedContent += data
-      streamingContent.value = receivedContent
+      // 非 HTML 格式：后端返回 JSON 数组，提取并还原转义后的代码内容
+      if (receivedContent.trim().startsWith('[')) {
+        const contentMatch = receivedContent.match(/"content"\s*:\s*"/)
+        if (contentMatch) {
+          // 提取 "content":" 之后的原始 JSON 字符串片段，并还原转义字符（\\\\ 必须最先）
+          let code = receivedContent.slice(contentMatch.index! + contentMatch[0].length)
+          code = code
+              .replace(/\\\\/g, '\\')
+              .replace(/\\n/g, '\n')
+              .replace(/\\t/g, '\t')
+              .replace(/\\r/g, '\r')
+              .replace(/\\"/g, '"')
+          streamingContent.value = code
+        } else {
+          streamingContent.value = '正在生成...'
+        }
+      } else {
+        streamingContent.value = receivedContent
+      }
       scrollToBottom()
     } else if (eventName === 'error') {
       throw new Error(data)
@@ -497,7 +509,7 @@ async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML
 /**
  * 快速生成 - 同步模式：一次性返回完整结果
  */
-async function runFastGenerateSync(sessionId: number, prompt: string, format = 'HTML') {
+async function runFastGenerateSync(sessionId: number, prompt: string, format: 'HTML' | 'VUE' | 'MULTI_FILE' | 'WORKFLOW' | 'GENERAL' = 'HTML') {
   streamingContent.value = '正在生成...'
 
   const res = await generateCode({
@@ -537,7 +549,7 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
   let receivedContent = ''
   let phaseText = ''
 
-  await readSseStream(response, (eventName, data) => {
+  await readSseStream(response, (_eventName, data) => {
     try {
       const event = JSON.parse(data)
       if (event.type === 'step' && event.message) {

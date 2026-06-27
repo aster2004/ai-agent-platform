@@ -12,19 +12,6 @@
         title="拖拽调整宽度"
     />
 
-    <!-- 折叠/展开按钮 -->
-    <div class="toggle-btn-wrap">
-      <button
-          class="toggle-btn"
-          @click="emit('toggle')"
-          :title="visible ? '收起预览' : '展开预览'"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline v-if="visible" points="15 18 9 12 15 6" />
-          <polyline v-else points="9 18 15 12 9 6" />
-        </svg>
-      </button>
-    </div>
 
     <!-- 面板内容 -->
     <div class="preview-inner" v-show="visible">
@@ -71,6 +58,17 @@
               <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
             </svg>
           </button>
+          <button class="header-btn" title="下载网页" @click="handleDownload">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+          <div class="header-divider" />
+          <button class="header-btn close-btn" title="关闭预览" @click="emit('close')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -111,6 +109,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { message } from 'ant-design-vue'
 import { highlightCode } from '@/utils/syntaxHighlight'
 import { formatLangLabel } from '@/utils/formatCode'
 import { mergeToPreviewHtml } from '@/utils/previewMerge'
@@ -128,6 +127,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'resize-start': [e: MouseEvent]
   toggle: []
+  close: []
 }>()
 
 const previewKey = ref(0)
@@ -229,7 +229,31 @@ function openInNewWindow() {
 
 function copyCode() {
   if (!sourceCode.value) return
-  navigator.clipboard.writeText(sourceCode.value)
+  navigator.clipboard.writeText(sourceCode.value).then(() => {
+    message.success('代码已复制')
+  }).catch(() => {
+    message.error('复制失败')
+  })
+}
+
+function handleDownload() {
+  if (!htmlContent.value) {
+    message.warning('暂无可下载的网页内容')
+    return
+  }
+  try {
+    const blob = new Blob([htmlContent.value], { type: 'text/html;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    a.download = `preview-${ts}.html`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('下载成功')
+  } catch {
+    message.error('下载失败')
+  }
 }
 
 // ===================== 源码提取 =====================
@@ -333,52 +357,6 @@ function formatMultiFileSource(files: CodeFile[]): string {
   background: #0958d9;
 }
 
-/* ====== 折叠/展开按钮 ====== */
-.toggle-btn-wrap {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 21;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.preview-panel.collapsed .toggle-btn-wrap {
-  left: 2px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-
-.toggle-btn {
-  width: 24px;
-  height: 56px;
-  border-radius: 0 8px 8px 0;
-  border: 1px solid #e5e7eb;
-  border-left: none;
-  background: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #888;
-  transition: all 0.2s;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04);
-}
-
-.toggle-btn:hover {
-  background: #f0f5ff;
-  border-color: #91caff;
-  color: #1677ff;
-  box-shadow: 2px 0 12px rgba(22, 119, 255, 0.10);
-}
-
-.preview-panel.collapsed .toggle-btn {
-  border-left: 1px solid #e5e7eb;
-  border-radius: 8px;
-}
-
 /* ====== 标题栏 ====== */
 .preview-header {
   display: flex;
@@ -466,6 +444,18 @@ function formatMultiFileSource(files: CodeFile[]): string {
 .header-btn:hover {
   background: #f2f3f5;
   color: #555;
+}
+
+.header-btn.close-btn:hover {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
+.header-divider {
+  width: 1px;
+  height: 20px;
+  background: #e5e7eb;
+  margin: 0 2px;
 }
 
 /* ====== 预览主体 ====== */

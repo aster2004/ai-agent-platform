@@ -289,7 +289,7 @@ const pagination = reactive({
 })
 
 const columns = computed(() => {
-  const base = [
+  const base: Array<Record<string, unknown>> = [
     { title: '应用名称', dataIndex: 'appName', key: 'appName', ellipsis: true },
   ]
   if (isAdmin.value) {
