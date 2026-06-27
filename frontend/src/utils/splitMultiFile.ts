@@ -143,18 +143,25 @@ export function tryExtractJsonFiles(text: string): Array<{ path: string; content
   const mdMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)```/)
   if (mdMatch) jsonText = mdMatch[1].trim()
 
-  // 定位 JSON 数组边界
-  const jsonStart = jsonText.indexOf('[{')
-  const jsonEnd = jsonText.lastIndexOf('}]')
-  if (jsonStart < 0) return null
+  // 定位 JSON 数组边界（允许格式化 JSON 中 [ 和 {、} 和 ] 之间有空格/换行）
+  const startMatch = jsonText.match(/\[\s*\{/)
+  if (!startMatch) return null
+  const jsonStart = startMatch.index!
+
+  const endMatches = [...jsonText.matchAll(/\}\s*\]/g)]
+  const hasClosing = endMatches.length > 0
 
   // 流式场景：数组尚未闭合（}] 未到达），用正则提取已完成文件
-  if (jsonEnd <= jsonStart) {
+  if (!hasClosing) {
     const partial = jsonText.slice(jsonStart)
     return regexExtractFiles(partial)
   }
 
-  const candidate = jsonText.slice(jsonStart, jsonEnd + 2)
+  const lastEnd = endMatches[endMatches.length - 1]
+  const jsonEnd = lastEnd.index!
+  const endLen = lastEnd[0].length
+
+  const candidate = jsonText.slice(jsonStart, jsonEnd + endLen)
 
   // 策略1：直接 JSON.parse
   let parsed: any[] | null = null
@@ -278,13 +285,16 @@ function formatFileMessage(path: string | undefined, code: string, lang?: string
  * 输出如：## 📁 style.css\n\n```css\nbody {\n  margin\n```
  */
 export function formatPartialJsonEntry(rawEntry: string): string | null {
-  // 提取文件名
-  const pathMatch = rawEntry.match(/"path"\s*:\s*"([^"]+)"/)
-  const path = pathMatch ? pathMatch[1] : 'file'
+  // 提取最后一个 "path"（当前正在流式的文件条目）
+  const pathMatch = rawEntry.match(/"path"\s*:\s*"([^"]+)"/g)
+  const path = pathMatch
+    ? pathMatch[pathMatch.length - 1].replace(/"path"\s*:\s*"([^"]+)"/, '$1')
+    : 'file'
 
-  // 提取 "content":" 之后的部分
-  const contentMatch = rawEntry.match(/"content"\s*:\s*"/)
-  if (!contentMatch) return null
+  // 提取最后一个 "content":" 之后的部分（当前正在流式输出的内容）
+  const contentMatches = [...rawEntry.matchAll(/"content"\s*:\s*"/g)]
+  if (contentMatches.length === 0) return null
+  const contentMatch = contentMatches[contentMatches.length - 1]
 
   const codeStart = contentMatch.index! + contentMatch[0].length
   let code = rawEntry.slice(codeStart)

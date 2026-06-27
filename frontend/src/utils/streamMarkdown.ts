@@ -7,7 +7,7 @@
  */
 
 import { detectFileLang, detectCodeLang } from './formatCode'
-import { regexExtractFiles } from './splitMultiFile'
+import { regexExtractFiles, formatPartialJsonEntry } from './splitMultiFile'
 
 /**
  * 检测 AI 返回内容是否为多文件 JSON 数组格式（Vue/Multi-file 策略）
@@ -63,21 +63,41 @@ export function normalizeAiContent(raw: string): string {
 }
 
 /**
- * 从文本任意位置提取 [{path, content}] JSON 数组
- * 解决 AI 在 JSON 前后添加解释文字导致检测失败的问题
+ * 从流式 JSON 片段中提取最后一个（进行中的）文件条目
+ * 与 regexExtractFiles 互补：后者只能提取 content 字符串已闭合的完整文件，
+ * 本函数专门处理 content 还在流式传输中的未闭合条目
  */
-function tryExtractJsonFiles(text: string): string | null {
-    const jsonStart = text.indexOf('[{')
-    const jsonEnd = text.lastIndexOf('}]')
-    if (jsonStart < 0) return null
+function formatLastPartialEntry(rawText: string): string | null {
+    // 找到最后一个 "content":" 标记（当前正在流式输出的文件）
+    const lastContentIdx = rawText.lastIndexOf('"content"')
+    if (lastContentIdx < 0) return null
 
-    // 流式场景：数组尚未闭合（}] 未到达），用正则提取已完成文件
-    if (jsonEnd <= jsonStart) {
-        const partial = text.slice(jsonStart)
-        const files = regexExtractFiles(partial)
-        if (!files || files.length === 0) return null
-        const parts: string[] = []
-        for (const file of files) {
+    // 找到这个条目对应的 "path"
+    const lastPathIdx = rawText.lastIndexOf('"path"', lastContentIdx)
+    if (lastPathIdx < 0) return null
+
+    // 找到这个 JSON 对象的起始 {
+    const objStart = rawText.lastIndexOf('{', lastPathIdx)
+    if (objStart < 0) return null
+
+    // 截取这个条目（从 { 到末尾），交给 formatPartialJsonEntry 处理
+    const entry = rawText.slice(objStart)
+    return formatPartialJsonEntry(entry)
+}
+
+/**
+ * 将已提取的文件列表 + 可选的进行中文件 → 合并为 markdown 文本
+ * 自动检测文件语言、去重
+ */
+function buildFilesMarkdown(
+    completedFiles: Array<{ path: string; content: string }> | null,
+    partialText: string,
+): string | null {
+    const parts: string[] = []
+
+    // 已完成文件
+    if (completedFiles) {
+        for (const file of completedFiles) {
             const lang = detectFileLang(file.path)
             parts.push(`## 📁 ${file.path}`)
             parts.push('```' + lang)
@@ -85,10 +105,49 @@ function tryExtractJsonFiles(text: string): string | null {
             parts.push('```')
             parts.push('')
         }
-        return parts.join('\n').trim()
     }
 
-    const candidate = text.slice(jsonStart, jsonEnd + 2)
+    // 进行中的未闭合文件（正则提取无法捕获的最后一个条目）
+    const partialEntry = formatLastPartialEntry(partialText)
+    if (partialEntry) {
+        const pathMatch = partialEntry.match(/## 📁 ([^\n]+)/)
+        const partialPath = pathMatch?.[1]
+        const isDuplicate = partialPath && completedFiles?.some(f => f.path === partialPath)
+        if (!isDuplicate) {
+            parts.push(partialEntry)
+        }
+    }
+
+    if (parts.length === 0) return null
+    return parts.join('\n').trim()
+}
+
+/**
+ * 从文本任意位置提取 [{path, content}] JSON 数组
+ * 解决 AI 在 JSON 前后添加解释文字导致检测失败的问题
+ */
+function tryExtractJsonFiles(text: string): string | null {
+    // 匹配 JSON 数组起始：允许 [ 和 { 之间有空格/换行（AI 常输出格式化 JSON）
+    const startMatch = text.match(/\[\s*\{/)
+    if (!startMatch) return null
+    const jsonStart = startMatch.index!
+
+    // 匹配 JSON 数组结束：允许 } 和 ] 之间有空格/换行
+    const endMatches = [...text.matchAll(/\}\s*\]/g)]
+    const hasClosing = endMatches.length > 0
+
+    // 流式场景：数组尚未闭合（}] 未到达），用正则提取已完成文件 + 进行中文件
+    if (!hasClosing) {
+        const partial = text.slice(jsonStart)
+        const files = regexExtractFiles(partial)
+        return buildFilesMarkdown(files, partial)
+    }
+
+    const lastEnd = endMatches[endMatches.length - 1]
+    const jsonEnd = lastEnd.index!
+    const endLen = lastEnd[0].length
+
+    const candidate = text.slice(jsonStart, jsonEnd + endLen)
     try {
         const arr = JSON.parse(candidate)
         if (Array.isArray(arr) && arr.length > 0) {
@@ -105,7 +164,12 @@ function tryExtractJsonFiles(text: string): string | null {
                 return parts.join('\n').trim()
             }
         }
-    } catch { /* 不是有效 JSON，继续后续检测 */ }
+    } catch {
+        // JSON.parse 失败（流式截断 / AI 格式小错误），回退到正则提取
+        const files = regexExtractFiles(candidate)
+        const result = buildFilesMarkdown(files, candidate)
+        if (result) return result
+    }
     return null
 }
 
