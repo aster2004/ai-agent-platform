@@ -154,6 +154,9 @@ public class LlmModelFactory {
 
     private StreamingChatModel buildDeepStreamNoFallback() {
         LlmConfig.DeepSeekConfig cfg = llmConfig.getDeepseek();
+        if (cfg == null) {
+            throw new RuntimeException("yml未配置llm.deepseek，无法构建DeepSeek流式模型");
+        }
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(cfg.getBaseUrl())
                 .apiKey(cfg.getApiKey())
@@ -164,6 +167,9 @@ public class LlmModelFactory {
 
     private StreamingChatModel buildBaiStreamNoFallback() {
         LlmConfig.BaiLianConfig cfg = llmConfig.getBailian();
+        if (cfg == null) {
+            throw new RuntimeException("yml未配置llm.bailian，无法构建bailian流式模型");
+        }
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(cfg.getBaseUrl())
                 .apiKey(cfg.getApiKey())
@@ -174,6 +180,9 @@ public class LlmModelFactory {
 
     private StreamingChatModel buildOpenStreamNoFallback() {
         LlmConfig.OpenAiConfig cfg = llmConfig.getOpenai();
+        if (cfg == null) {
+            throw new RuntimeException("yml未配置llm.openai，无法构建openai流式模型");
+        }
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(cfg.getBaseUrl())
                 .apiKey(cfg.getApiKey())

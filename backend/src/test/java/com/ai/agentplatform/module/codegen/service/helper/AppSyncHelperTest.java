@@ -24,6 +24,40 @@ class AppSyncHelperTest {
     @InjectMocks
     private AppSyncHelper appSyncHelper;
 
+    // ==================== createApp ====================
+
+    @Test
+    void shouldCreateAppAndReturnId() {
+        String respJson = """
+                {"code":200,"data":{"id":42,"appName":"测试应用"}}""";
+        when(codeGenRestTemplate.postForObject(eq("/api/app"), any(), eq(String.class)))
+                .thenReturn(respJson);
+
+        Long appId = appSyncHelper.createApp("测试应用", "描述");
+        assertEquals(42L, appId);
+    }
+
+    @Test
+    void shouldReturnNullWhenCreateAppFails() {
+        when(codeGenRestTemplate.postForObject(eq("/api/app"), any(), eq(String.class)))
+                .thenThrow(new RuntimeException("Connection refused"));
+
+        assertNull(appSyncHelper.createApp("测试应用", null));
+    }
+
+    @Test
+    void shouldDeriveAppNameFromPrompt() {
+        assertEquals("写一个Vue3用户管理页面", AppSyncHelper.deriveAppName(null, "写一个Vue3用户管理页面"));
+        assertEquals("这是一个非常非常长的需求描述...", AppSyncHelper.deriveAppName(null, "这是一个非常非常长的需求描述需要被截断"));
+        assertEquals("自定义名称", AppSyncHelper.deriveAppName("自定义名称", "prompt"));
+    }
+
+    @Test
+    void shouldReuseExistingAppIdInResolveOrCreate() {
+        assertEquals(5L, appSyncHelper.resolveOrCreateApp(5L, null, "prompt"));
+        verify(codeGenRestTemplate, never()).postForObject(anyString(), any(), any());
+    }
+
     // ==================== syncCodeToApp ====================
 
     @Test

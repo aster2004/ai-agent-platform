@@ -65,6 +65,12 @@ public class AppController {
         return Result.success(appService.getById(id));
     }
 
+    @Operation(summary = "解析应用关联的对话会话")
+    @GetMapping("/{id}/session")
+    public Result<Long> resolveSession(@PathVariable Long id) {
+        return Result.success(appService.resolveSessionId(id, SecurityUtils.getCurrentUserId()));
+    }
+
     @Operation(summary = "编辑应用")
     @PutMapping("/{id}")
     public Result<AppVO> update(@PathVariable Long id,
@@ -104,6 +110,20 @@ public class AppController {
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         appService.delete(id, SecurityUtils.getCurrentUserId());
+        return Result.success();
+    }
+
+    @Operation(summary = "访问精选应用（其他用户从精选广场点击进入）")
+    @PostMapping("/{id}/visit")
+    public Result<Void> visitApp(@PathVariable Long id) {
+        appService.recordVisit(id, SecurityUtils.getCurrentUserId());
+        return Result.success();
+    }
+
+    @Operation(summary = "收藏精选应用（其他用户收藏被精选的应用）")
+    @PostMapping("/{id}/favorite")
+    public Result<Void> favoriteApp(@PathVariable Long id) {
+        appService.recordDeploy(id, SecurityUtils.getCurrentUserId());
         return Result.success();
     }
 }

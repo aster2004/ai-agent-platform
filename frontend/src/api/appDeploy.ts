@@ -28,6 +28,14 @@ export function downloadAppSource(appId: number) {
   return `/api/app/${appId}/download`
 }
 
-export function captureCover(appId: number) {
+/** 上传当前预览界面截图作为封面 */
+export function captureCover(appId: number, file: Blob) {
+  const formData = new FormData()
+  formData.append('file', file, 'cover.png')
+  return request.post<any, Result<CoverResultVO>>(`/api/app/${appId}/cover`, formData)
+}
+
+/** 服务端 Selenium 首屏截图（无 file 时） */
+export function captureCoverServer(appId: number) {
   return request.post<any, Result<CoverResultVO>>(`/api/app/${appId}/cover`)
 }

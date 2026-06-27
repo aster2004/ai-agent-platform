@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="profile-page">
     <a-card title="个人信息" class="profile-card">
       <div class="profile-content">
@@ -126,15 +126,45 @@
         </a-list>
       </a-card>
     </div>
+
+    <a-card title="积分明细" class="profile-card" style="margin-top: 24px;">
+      <div class="points-detail-header">
+        <a-space>
+          <a-date-picker v-model:value="selectedDate" placeholder="选择日期" @change="loadPointsByDate" />
+          <a-button @click="loadPointsByDate">查询</a-button>
+          <a-button @click="loadAllPoints">查看全部</a-button>
+        </a-space>
+        <div class="points-summary">
+          <span>共 <strong>{{ currentPointsLogs.length }}</strong> 条记录</span>
+          <span>合计 <strong class="points-highlight">+{{ currentTotalPoints }}</strong> 积分</span>
+        </div>
+      </div>
+      <a-spin :spinning="pointsLoading">
+        <a-timeline v-if="currentPointsLogs.length > 0" class="points-timeline">
+          <a-timeline-item v-for="log in currentPointsLogs" :key="log.id" :color="getPointsColor(log.type)">
+            <div class="points-log-item">
+              <div class="points-log-left">
+                <span class="points-log-desc">{{ log.description || getTypeName(log.type) }}</span>
+                <span class="points-log-time">{{ formatLogTime(log.createTime) }}</span>
+              </div>
+              <span class="points-log-points">+{{ log.points }}</span>
+            </div>
+          </a-timeline-item>
+        </a-timeline>
+        <a-empty v-else description="暂无积分记录" />
+      </a-spin>
+    </a-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { UserOutlined, CalendarOutlined, CheckCircleOutlined } from '@ant-design/icons-vue'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import type { Dayjs } from 'dayjs'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
-import { uploadAvatar, updateProfile, getCurrentUser, checkin, getCheckinStats, getNewbieTasks } from '@/api/user'
+import { uploadAvatar, updateProfile, getCurrentUser, checkin, getCheckinStats, getNewbieTasks, getPointsDetail, type PointsLogItem } from '@/api/user'
+import dayjs from 'dayjs'
 
 const userStore = useUserStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -156,12 +186,18 @@ const checkinStats = ref({
 })
 
 const newbieTasks = ref({
-  tasks: [],
+  tasks: [] as any[],
   completedCount: 0,
   totalCount: 0,
   totalPoints: 0,
   earnedPoints: 0
 })
+
+const selectedDate = ref<Dayjs | null>(null)
+const pointsLoading = ref(false)
+const allPointsLogs = ref<PointsLogItem[]>([])
+const currentPointsLogs = ref<PointsLogItem[]>([])
+const currentTotalPoints = computed(() => currentPointsLogs.value.reduce((sum, log) => sum + log.points, 0))
 
 onMounted(async () => {
   try {
@@ -175,7 +211,78 @@ onMounted(async () => {
   }
   loadCheckinStats()
   loadNewbieTasks()
+  loadAllPoints()
 })
+
+async function loadAllPoints() {
+  pointsLoading.value = true
+  try {
+    const res = await getPointsDetail()
+    const grouped = res.data as Record<string, PointsLogItem[]>
+    const logs: PointsLogItem[] = []
+    for (const date in grouped) {
+      logs.push(...grouped[date])
+    }
+    allPointsLogs.value = logs
+    currentPointsLogs.value = logs
+  } catch (e: any) {
+    console.error('loadPoints error:', e)
+  } finally {
+    pointsLoading.value = false
+  }
+}
+
+async function loadPointsByDate() {
+  if (!selectedDate.value) {
+    currentPointsLogs.value = allPointsLogs.value
+    return
+  }
+  const dateStr = selectedDate.value.format('YYYY-MM-DD')
+  currentPointsLogs.value = allPointsLogs.value.filter(log => log.recordDate === dateStr)
+}
+
+function formatLogTime(time: string) {
+  if (!time) return ''
+  return time.replace('T', ' ').slice(0, 19)
+}
+
+function getTypeName(type: string) {
+  const typeMap: Record<string, string> = {
+    'REGISTER': '注册账号',
+    'SET_NICKNAME': '设置昵称',
+    'BIND_PHONE': '绑定手机号',
+    'BIND_EMAIL': '绑定邮箱',
+    'UPLOAD_AVATAR': '上传头像',
+    'CHECKIN_DAILY': '每日签到',
+    'CHECKIN_7DAYS': '连续签到7天',
+    'CHECKIN_30DAYS': '连续签到30天',
+    'APP_CREATE': '创建应用',
+    'APP_DEPLOY': '部署应用',
+    'APP_FEATURED': '应用被精选',
+    'APP_VISIT': '应用被访问',
+    'APP_FAVORITE': '应用被收藏',
+  }
+  return typeMap[type] || type
+}
+
+function getPointsColor(type: string) {
+  const colorMap: Record<string, string> = {
+    'REGISTER': 'green',
+    'SET_NICKNAME': 'blue',
+    'BIND_PHONE': 'blue',
+    'BIND_EMAIL': 'blue',
+    'UPLOAD_AVATAR': 'blue',
+    'CHECKIN_DAILY': 'green',
+    'CHECKIN_7DAYS': 'green',
+    'CHECKIN_30DAYS': 'green',
+    'APP_CREATE': 'orange',
+    'APP_DEPLOY': 'orange',
+    'APP_FEATURED': 'gold',
+    'APP_VISIT': 'cyan',
+    'APP_FAVORITE': 'purple',
+  }
+  return colorMap[type] || 'blue'
+}
 
 async function loadCheckinStats() {
   try {
@@ -448,5 +555,57 @@ async function saveEmail() {
   color: #52c41a;
   font-size: 18px;
   margin-left: 8px;
+}
+
+.points-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.points-summary {
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.points-highlight {
+  color: #1890ff;
+  font-size: 16px;
+}
+
+.points-timeline {
+  padding: 8px 0;
+}
+
+.points-log-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.points-log-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.points-log-desc {
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.points-log-time {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.points-log-points {
+  font-size: 16px;
+  font-weight: 600;
+  color: #52c41a;
 }
 </style>

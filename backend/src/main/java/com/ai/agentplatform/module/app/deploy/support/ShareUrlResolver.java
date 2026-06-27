@@ -91,6 +91,16 @@ public class ShareUrlResolver {
         return base + (path.startsWith("/") ? path : "/" + path);
     }
 
+    /** 本机 Headless 截图专用：固定走 127.0.0.1，避免 Chrome 访问局域网 IP 卡死 */
+    public String buildLocalhostUrl(int port, String path) {
+        String normalizedPath = normalizeToPath(path);
+        String base = "http://127.0.0.1:" + port;
+        if (!StringUtils.hasText(normalizedPath) || "/".equals(normalizedPath)) {
+            return base + "/";
+        }
+        return base + normalizedPath;
+    }
+
     public String resolveHost() {
         if (StringUtils.hasText(deployProperties.getShareHost())) {
             return deployProperties.getShareHost().trim();

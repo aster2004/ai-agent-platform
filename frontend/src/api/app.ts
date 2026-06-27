@@ -22,6 +22,10 @@ export function getAppById(id: number) {
   return request.get<any, Result<AppVO>>(`/api/app/${id}`)
 }
 
+export function getAppSessionId(id: number) {
+  return request.get<any, Result<number>>(`/api/app/${id}/session`)
+}
+
 export function createApp(data: AppCreateParams) {
   return request.post<any, Result<AppVO>>('/api/app', data)
 }
@@ -50,4 +54,12 @@ export function uploadAppCover(file: File) {
   const formData = new FormData()
   formData.append('file', file)
   return request.post<any, Result<string>>('/api/app/upload/cover', formData)
+}
+
+export function visitApp(id: number) {
+  return request.post<any, Result<void>>(`/api/app/${id}/visit`)
+}
+
+export function favoriteApp(id: number) {
+  return request.post<any, Result<void>>(`/api/app/${id}/favorite`)
 }

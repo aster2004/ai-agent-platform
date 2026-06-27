@@ -2,7 +2,9 @@
   <div class="input-area home-input" :class="{ compact }">
     <textarea
         v-model="text"
-        @keydown.enter.prevent="handleSend"
+        @compositionstart="isComposing = true"
+        @compositionend="isComposing = false"
+        @keydown.enter="onEnterKey"
         :placeholder="isHome ? '输入你的需求，直接开始对话...' : '说说你的想法...'"
     ></textarea>
 
@@ -117,6 +119,7 @@ const props = defineProps({
 })
 
 const text = ref('')
+const isComposing = ref(false)
 const runMode = ref<'fast' | 'deep'>('fast')
 const outputMode = ref<'stream' | 'sync'>('stream')
 const outputMenuOpen = ref(false)
@@ -168,6 +171,14 @@ function handleClickOutside(e: MouseEvent) {
 
 onMounted(() => document.addEventListener('click', handleClickOutside))
 onUnmounted(() => document.removeEventListener('click', handleClickOutside))
+
+/** Enter 发送；Shift+Enter 换行；中文输入法选词时的 Enter 不发送 */
+function onEnterKey(e: KeyboardEvent) {
+  if (isComposing.value || e.isComposing) return
+  if (e.shiftKey) return
+  e.preventDefault()
+  handleSend(e)
+}
 
 const handleSend = (e?: Event) => {
   if (e) e.preventDefault()

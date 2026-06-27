@@ -160,8 +160,8 @@ async function handleSend({ content, mode, output, format }: { content: string; 
       path: `/chat/session/${sessionId}`,
       query: { prompt: content, mode, output, format: format || 'HTML' },
     })
-  } catch (e: any) {
-    message.error(e?.message || '创建对话失败')
+  } catch {
+    // 错误提示已由 request 拦截器统一展示
   } finally {
     creating.value = false
   }

@@ -46,6 +46,12 @@ public class UserService {
     public static final String POINT_TYPE_CHECKIN_7DAYS = "CHECKIN_7DAYS";
     public static final String POINT_TYPE_CHECKIN_30DAYS = "CHECKIN_30DAYS";
 
+    public static final String POINT_TYPE_APP_CREATE = "APP_CREATE";
+    public static final String POINT_TYPE_APP_DEPLOY = "APP_DEPLOY";
+    public static final String POINT_TYPE_APP_FEATURED = "APP_FEATURED";
+    public static final String POINT_TYPE_APP_VISIT = "APP_VISIT";
+    public static final String POINT_TYPE_APP_FAVORITE = "APP_FAVORITE";
+
     @Transactional
     public UserVO register(UserRegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -75,7 +81,17 @@ public class UserService {
         user.setLevel("v0");
         User savedUser = userRepository.save(user);
         addPoints(savedUser.getId(), 50, POINT_TYPE_REGISTER, "注册账号");
-        return UserVO.from(savedUser);
+        if (request.getNickname() != null && !request.getNickname().isEmpty()) {
+            addPoints(savedUser.getId(), 20, POINT_TYPE_SET_NICKNAME, "设置个人昵称");
+        }
+        if (hasPhone) {
+            addPoints(savedUser.getId(), 30, POINT_TYPE_BIND_PHONE, "绑定手机号");
+        }
+        if (hasEmail) {
+            addPoints(savedUser.getId(), 30, POINT_TYPE_BIND_EMAIL, "绑定邮箱");
+        }
+        User updatedUser = userRepository.findById(savedUser.getId()).orElse(savedUser);
+        return UserVO.from(updatedUser);
     }
 
     public LoginVO login(UserLoginRequest request) {
@@ -218,7 +234,15 @@ public class UserService {
 
     @Transactional
     public void addPoints(Long userId, int points, String type, String description) {
-        if (pointsLogRepository.existsByUserIdAndType(userId, type)) {
+        addPoints(userId, points, type, description, null, null);
+    }
+
+    @Transactional
+    public void addPoints(Long userId, int points, String type, String description, Long relatedId, String relatedType) {
+        if (relatedId != null && pointsLogRepository.existsByUserIdAndTypeAndRelatedIdAndRelatedType(userId, type, relatedId, relatedType)) {
+            return;
+        }
+        if (relatedId == null && pointsLogRepository.existsByUserIdAndType(userId, type)) {
             return;
         }
         User user = userRepository.findById(userId)
@@ -231,7 +255,52 @@ public class UserService {
         log.setPoints(points);
         log.setType(type);
         log.setDescription(description);
+        log.setRecordDate(LocalDate.now());
+        log.setRelatedId(relatedId);
+        log.setRelatedType(relatedType);
         pointsLogRepository.save(log);
+    }
+
+    @Transactional
+    public int addPointsWithDailyLimit(Long userId, int points, String type, String description, int dailyLimit) {
+        return addPointsWithDailyLimit(userId, points, type, description, dailyLimit, null, null);
+    }
+
+    @Transactional
+    public int addPointsWithDailyLimit(Long userId, int points, String type, String description, int dailyLimit, Long relatedId, String relatedType) {
+        if (relatedId != null && pointsLogRepository.existsByUserIdAndTypeAndRelatedIdAndRelatedType(userId, type, relatedId, relatedType)) {
+            return 0;
+        }
+        LocalDate today = LocalDate.now();
+        Integer todayPoints = pointsLogRepository.sumPointsByUserIdAndTypeAndDate(userId, type, today);
+        if (todayPoints == null) todayPoints = 0;
+
+        if (todayPoints >= dailyLimit) {
+            return 0;
+        }
+
+        int actualPoints = Math.min(points, dailyLimit - todayPoints);
+        if (actualPoints <= 0) {
+            return 0;
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException("用户不存在"));
+        user.setPoints(user.getPoints() + actualPoints);
+        user.setLevel(calculateLevel(user.getPoints()));
+        userRepository.save(user);
+
+        UserPointsLog log = new UserPointsLog();
+        log.setUserId(userId);
+        log.setPoints(actualPoints);
+        log.setType(type);
+        log.setDescription(description);
+        log.setRecordDate(today);
+        log.setRelatedId(relatedId);
+        log.setRelatedType(relatedType);
+        pointsLogRepository.save(log);
+
+        return actualPoints;
     }
 
     private String calculateLevel(int points) {
@@ -271,7 +340,7 @@ public class UserService {
         checkin.setUserId(userId);
         checkin.setCheckinDate(today);
         checkinRepository.save(checkin);
-        addPoints(userId, 5, POINT_TYPE_CHECKIN_DAILY, "每日签到");
+        addPointsWithDailyLimit(userId, 5, POINT_TYPE_CHECKIN_DAILY, "每日签到", 5);
         if (consecutiveDays >= 7 && consecutiveDays % 7 == 0) {
             addPoints(userId, 20, POINT_TYPE_CHECKIN_7DAYS, "连续签到7天");
         }
@@ -374,5 +443,43 @@ public class UserService {
         item.put("type", type);
         item.put("completed", completed);
         return item;
+    }
+
+    public Map<String, Object> getPointsDetail(Long userId, LocalDate startDate, LocalDate endDate) {
+        List<UserPointsLog> logs;
+        if (startDate != null && endDate != null) {
+            logs = pointsLogRepository.findByUserIdAndRecordDateBetweenOrderByCreateTimeDesc(userId, startDate, endDate);
+        } else if (startDate != null) {
+            logs = pointsLogRepository.findByUserIdAndRecordDateGreaterThanEqualOrderByCreateTimeDesc(userId, startDate);
+        } else if (endDate != null) {
+            logs = pointsLogRepository.findByUserIdAndRecordDateLessThanEqualOrderByCreateTimeDesc(userId, endDate);
+        } else {
+            logs = pointsLogRepository.findByUserIdOrderByCreateTimeDesc(userId);
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("logs", logs);
+        result.put("total", logs.stream().mapToInt(UserPointsLog::getPoints).sum());
+        result.put("count", logs.size());
+        return result;
+    }
+
+    public List<UserPointsLog> getPointsLogsByDate(Long userId, LocalDate date) {
+        return pointsLogRepository.findByUserIdAndRecordDateOrderByCreateTimeDesc(userId, date);
+    }
+
+    public Map<String, List<UserPointsLog>> getPointsLogsGroupByDate(Long userId, LocalDate startDate, LocalDate endDate) {
+        List<UserPointsLog> logs;
+        if (startDate != null && endDate != null) {
+            logs = pointsLogRepository.findByUserIdAndRecordDateBetweenOrderByCreateTimeDesc(userId, startDate, endDate);
+        } else {
+            logs = pointsLogRepository.findByUserIdOrderByCreateTimeDesc(userId);
+        }
+        Map<String, List<UserPointsLog>> grouped = new LinkedHashMap<>();
+        for (UserPointsLog log : logs) {
+            LocalDate date = log.getRecordDate();
+            String dateStr = date != null ? date.toString() : "";
+            grouped.computeIfAbsent(dateStr, k -> new ArrayList<>()).add(log);
+        }
+        return grouped;
     }
 }

@@ -22,4 +22,7 @@ public interface CodeGenerateMapper {
     );
     // 查询用户总记录数
     Long countByUserId(@Param("userId") Long userId);
+
+    /** 同会话最近一次成功生成的完整代码（迭代修改基线） */
+    CodeGenerate selectLatestSuccessBySessionId(@Param("sessionId") Long sessionId);
 }

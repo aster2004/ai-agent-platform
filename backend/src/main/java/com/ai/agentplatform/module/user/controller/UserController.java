@@ -157,4 +157,31 @@ public class UserController {
         Long userId = (Long) authentication.getPrincipal();
         return Result.success(userService.getNewbieTasks(userId));
     }
+
+    @Operation(summary = "获取积分明细（按日期分组）")
+    @GetMapping("/points/detail")
+    public Result<?> getPointsDetail(
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        java.time.LocalDate start = startDate != null ? java.time.LocalDate.parse(startDate) : null;
+        java.time.LocalDate end = endDate != null ? java.time.LocalDate.parse(endDate) : null;
+        return Result.success(userService.getPointsLogsGroupByDate(userId, start, end));
+    }
+
+    @Operation(summary = "获取指定日期的积分明细")
+    @GetMapping("/points/by-date")
+    public Result<Map<String, Object>> getPointsByDate(@RequestParam String date) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        Long userId = (Long) authentication.getPrincipal();
+        java.time.LocalDate targetDate = java.time.LocalDate.parse(date);
+        var logs = userService.getPointsLogsByDate(userId, targetDate);
+        int total = logs.stream().mapToInt(com.ai.agentplatform.module.user.entity.UserPointsLog::getPoints).sum();
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("logs", logs);
+        result.put("total", total);
+        result.put("date", date);
+        return Result.success(result);
+    }
 }

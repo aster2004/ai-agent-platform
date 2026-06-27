@@ -2,14 +2,20 @@ package com.ai.agentplatform.module.app.deploy.controller;
 
 import com.ai.agentplatform.common.exception.BusinessException;
 import com.ai.agentplatform.common.result.Result;
+import com.ai.agentplatform.common.util.SecurityUtils;
 import com.ai.agentplatform.module.app.deploy.dto.DeployRequest;
 import com.ai.agentplatform.module.app.deploy.service.AppDeployService;
 import com.ai.agentplatform.module.app.deploy.service.AppDownloadService;
 import com.ai.agentplatform.module.app.deploy.service.AppPreviewService;
+import com.ai.agentplatform.module.app.deploy.service.CoverImageStoreService;
 import com.ai.agentplatform.module.app.deploy.service.CoverScreenshotService;
 import com.ai.agentplatform.module.app.deploy.vo.DeployModeVO;
 import com.ai.agentplatform.module.app.deploy.vo.DeployResultVO;
 import com.ai.agentplatform.module.app.deploy.vo.PreviewVO;
+import com.ai.agentplatform.module.app.entity.App;
+import com.ai.agentplatform.module.app.repository.AppRepository;
+import com.ai.agentplatform.module.app.service.AppService;
+import com.ai.agentplatform.module.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -20,11 +26,13 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "应用部署分享", description = "成员3：预览、部署、下载、封面截图")
 @RestController
@@ -35,7 +43,11 @@ public class AppDeployController {
     private final AppPreviewService appPreviewService;
     private final AppDeployService appDeployService;
     private final AppDownloadService appDownloadService;
+    private final CoverImageStoreService coverImageStoreService;
     private final ObjectProvider<CoverScreenshotService> coverScreenshotServiceProvider;
+    private final AppRepository appRepository;
+    private final UserService userService;
+    private final AppService appService;
 
     @Operation(summary = "获取应用预览地址", description = "将 app_code 写入本地 preview 目录并返回 iframe 可用 URL")
     @GetMapping("/{id}/preview")
@@ -62,11 +74,26 @@ public class AppDeployController {
 
     @Operation(summary = "一键部署", description = "支持 local / nginx / docker 三种方式")
     @PostMapping("/{id}/deploy")
-    public Result<DeployResultVO> deploy(@PathVariable Long id,
-                                         @RequestBody(required = false) @Valid DeployRequest request)
+    public Result<Map<String, Object>> deploy(@PathVariable Long id,
+                                              @RequestBody(required = false) @Valid DeployRequest request)
             throws IOException, InterruptedException {
         String mode = request != null && request.getMode() != null ? request.getMode() : "local";
-        return Result.success(appDeployService.deploy(id, mode));
+        DeployResultVO result = appDeployService.deploy(id, mode);
+        App app = appRepository.findById(id).orElse(null);
+        Integer pointsAdded = 0;
+        if (app != null) {
+            Long currentUserId = SecurityUtils.getCurrentUserId();
+            if (app.getUserId().equals(currentUserId)) {
+                pointsAdded = userService.addPointsWithDailyLimit(currentUserId, 10, UserService.POINT_TYPE_APP_DEPLOY,
+                        "部署应用：" + app.getAppName(), 50, app.getId(), "APP");
+            } else {
+                appService.recordDeploy(id, currentUserId);
+            }
+        }
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("deployResult", result);
+        response.put("pointsAdded", pointsAdded);
+        return Result.success(response);
     }
 
     @Operation(summary = "获取部署地址")
@@ -75,12 +102,17 @@ public class AppDeployController {
         return Result.success(appDeployService.getDeployInfo(id));
     }
 
-    @Operation(summary = "生成封面截图", description = "P2 功能，需 app.deploy.screenshot-enabled=true")
+    @Operation(summary = "生成封面截图", description = "上传 file 时截取当前预览界面；未上传时走 Selenium 首屏截图")
     @PostMapping("/{id}/cover")
-    public Result<?> captureCover(@PathVariable Long id) throws IOException, InterruptedException {
+    public Result<?> captureCover(@PathVariable Long id,
+                                  @RequestPart(value = "file", required = false) MultipartFile file)
+            throws IOException, InterruptedException {
+        if (file != null && !file.isEmpty()) {
+            return Result.success(coverImageStoreService.saveFromUpload(id, file));
+        }
         CoverScreenshotService coverService = coverScreenshotServiceProvider.getIfAvailable();
         if (coverService == null) {
-            throw new BusinessException("封面截图未启用，请在配置中设置 app.deploy.screenshot-enabled=true");
+            throw new BusinessException("请先在预览中切换到目标界面，再点击「生成封面」；或启用 app.deploy.screenshot-enabled 使用服务端截图");
         }
         return Result.success(coverService.captureCover(id));
     }

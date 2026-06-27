@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -30,4 +31,13 @@ public class UserPointsLog {
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createTime;
+
+    @Column
+    private LocalDate recordDate;
+
+    @Column(name = "related_id")
+    private Long relatedId;
+
+    @Column(name = "related_type", length = 50)
+    private String relatedType;
 }

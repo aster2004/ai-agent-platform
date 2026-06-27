@@ -46,6 +46,9 @@ public class CodeGenConstant {
     public static final Integer TOKEN_MIN = 100;
     public static final Integer TOKEN_MAX = 5000;
 
-    // Mock 默认AppId
+    // Mock 默认AppId（并行开发遗留，新流程请使用 UNASSIGNED_APP_ID）
     public static final Long MOCK_DEFAULT_APP_ID = 1L;
+
+    /** 生成失败且未关联应用时的占位 ID */
+    public static final Long UNASSIGNED_APP_ID = 0L;
 }
