@@ -71,6 +71,73 @@ public final class PreviewBridgeInjector {
               } else {
                 healthCheck();
               }
+
+              function loadHtml2Canvas() {
+                if (window.html2canvas) {
+                  return Promise.resolve(window.html2canvas);
+                }
+                return new Promise(function (resolve, reject) {
+                  var script = document.createElement('script');
+                  script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+                  script.onload = function () { resolve(window.html2canvas); };
+                  script.onerror = function () { reject(new Error('html2canvas 加载失败')); };
+                  document.head.appendChild(script);
+                });
+              }
+
+              function measureFullPageSize() {
+                var docEl = document.documentElement;
+                var body = document.body || docEl;
+                var width = Math.max(
+                  docEl.scrollWidth, docEl.offsetWidth, docEl.clientWidth,
+                  body.scrollWidth, body.offsetWidth, body.clientWidth
+                );
+                var height = Math.max(
+                  docEl.scrollHeight, docEl.offsetHeight, docEl.clientHeight,
+                  body.scrollHeight, body.offsetHeight, body.clientHeight
+                );
+                var MAX_DIM = 8192;
+                return {
+                  width: Math.min(Math.max(width, 320), MAX_DIM),
+                  height: Math.min(Math.max(height, 200), MAX_DIM)
+                };
+              }
+
+              function captureCurrentView() {
+                return loadHtml2Canvas().then(function (html2canvas) {
+                  var size = measureFullPageSize();
+                  var target = document.body || document.documentElement;
+                  return html2canvas(target, {
+                    width: size.width,
+                    height: size.height,
+                    scale: 1,
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                    scrollX: 0,
+                    scrollY: 0,
+                    x: 0,
+                    y: 0,
+                    backgroundColor: '#ffffff'
+                  }).then(function (canvas) {
+                    return canvas.toDataURL('image/png');
+                  });
+                });
+              }
+
+              window.addEventListener('message', function (event) {
+                var data = event.data;
+                if (!data || data.type !== 'capture-cover-request') {
+                  return;
+                }
+                captureCurrentView()
+                  .then(function (dataUrl) {
+                    post('capture-cover-result', { dataUrl: dataUrl });
+                  })
+                  .catch(function (err) {
+                    post('capture-cover-error', { message: err && err.message ? err.message : '截图失败' });
+                  });
+              });
             })();
             </script>
             """;

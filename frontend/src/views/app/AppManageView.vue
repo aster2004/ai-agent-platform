@@ -348,7 +348,7 @@ function startCoverPolling() {
   let attempts = 0
   coverPollTimer = setInterval(async () => {
     attempts += 1
-    if (attempts > 12 || !appList.value.some(hasMissingCover)) {
+    if (attempts > 24 || !appList.value.some(hasMissingCover)) {
       stopCoverPolling()
       return
     }
