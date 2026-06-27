@@ -24,6 +24,9 @@ class ChatHistoryHelperMemoryContextTest {
     @Mock
     private ChatSessionRepository chatSessionRepository;
 
+    @Mock
+    private IterationBaselineLoader iterationBaselineLoader;
+
     @InjectMocks
     private ChatHistoryHelper chatHistoryHelper;
 
@@ -38,6 +41,7 @@ class ChatHistoryHelperMemoryContextTest {
                 "user: 请做一个日历",
                 "ai: [生成] 类型：HTML 单页"
         ));
+        when(iterationBaselineLoader.load(13L, null)).thenReturn(null);
 
         ChatMemoryContext context = chatHistoryHelper.loadMemoryContext(13L);
 
@@ -54,6 +58,7 @@ class ChatHistoryHelperMemoryContextTest {
 
         when(chatSessionRepository.findById(1L)).thenReturn(Optional.of(session));
         when(chatMemoryService.getContextMessagesAsText(1L)).thenReturn(List.of("user: hi"));
+        when(iterationBaselineLoader.load(1L, null)).thenReturn(null);
 
         ChatMemoryContext context = chatHistoryHelper.loadMemoryContext(1L);
 

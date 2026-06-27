@@ -77,4 +77,25 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("（无）"));
         assertTrue(prompt.contains("【本次需求】做一个待办"));
     }
+
+    @Test
+    void buildPromptIncludesIterationBaseline() {
+        CodeGenRequest request = new CodeGenRequest();
+        request.setPrompt("只把背景换成深蓝色");
+        request.setAppId(1L);
+        request.setGenerateType("HTML");
+
+        ChatMemoryContext context = new ChatMemoryContext(
+                null,
+                List.of("user: 做日历"),
+                "<html><body class=\"calendar\">旧版</body></html>"
+        );
+
+        String prompt = promptBuilder.buildPrompt(request, context);
+
+        assertTrue(prompt.contains("【当前代码基线】"));
+        assertTrue(prompt.contains("最小修改"));
+        assertTrue(prompt.contains("旧版"));
+        assertTrue(prompt.contains("【本次需求】只把背景换成深蓝色"));
+    }
 }

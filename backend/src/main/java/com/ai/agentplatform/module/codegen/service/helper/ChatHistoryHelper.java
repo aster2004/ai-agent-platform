@@ -28,19 +28,35 @@ public class ChatHistoryHelper {
     @Resource
     private ChatSessionRepository chatSessionRepository;
 
+    @Resource
+    private IterationBaselineLoader iterationBaselineLoader;
+
     /**
-     * 加载 Layer 2 + Layer 1，供 PromptBuilder 组装。
+     * 加载 Layer 2 + Layer 1 + 迭代代码基线，供 PromptBuilder 组装。
      */
     public ChatMemoryContext loadMemoryContext(Long sessionId) {
+        return loadMemoryContext(sessionId, null);
+    }
+
+    /**
+     * 加载 Layer 2 + Layer 1 + 迭代代码基线，供 PromptBuilder 组装。
+     *
+     * @param requestAppId 生成请求中的 appId，用于读取 app.app_code
+     */
+    public ChatMemoryContext loadMemoryContext(Long sessionId, Long requestAppId) {
         if (sessionId == null) {
             return ChatMemoryContext.empty();
         }
         String summary = loadSessionSummary(sessionId);
         List<String> recent = loadChatHistory(sessionId);
+        String baseline = iterationBaselineLoader.load(sessionId, requestAppId);
         if (summary != null) {
             log.debug("加载会话 {} 长期记忆: {} 字", sessionId, summary.length());
         }
-        return new ChatMemoryContext(summary, recent);
+        if (baseline != null) {
+            log.debug("加载会话 {} 迭代基线: {} 字", sessionId, baseline.length());
+        }
+        return new ChatMemoryContext(summary, recent, baseline);
     }
 
     /**

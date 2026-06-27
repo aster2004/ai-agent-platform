@@ -237,6 +237,37 @@ public class AppSyncHelper {
         }
     }
 
+    /**
+     * 读取应用当前代码（app.app_code），供迭代生成拼入 Prompt。
+     */
+    public String getAppCode(Long appId) {
+        if (appId == null || appId <= 0) {
+            return null;
+        }
+        try {
+            String url = APP_CODE_UPDATE_URL.replace("/{id}/code", "/{id}");
+            String respJson = codeGenRestTemplate.getForObject(url, String.class, appId);
+            JSONObject respObj = JSON.parseObject(respJson);
+            if (respObj == null || respObj.getIntValue("code") != 200) {
+                log.warn("[读取App代码] appId={} 接口返回异常", appId);
+                return null;
+            }
+            JSONObject appData = respObj.getJSONObject("data");
+            if (appData == null) {
+                return null;
+            }
+            String appCode = appData.getString("appCode");
+            if (appCode == null || appCode.isBlank()) {
+                return null;
+            }
+            log.debug("[读取App代码] appId={}, 长度={}", appId, appCode.length());
+            return appCode;
+        } catch (Exception e) {
+            log.warn("[读取App代码失败] appId={}, 原因: {}", appId, e.getMessage());
+            return null;
+        }
+    }
+
     private AppConfigDTO buildDefaultConfig() {
         AppConfigDTO config = new AppConfigDTO();
         config.setTemperature(new BigDecimal("0.7"));
