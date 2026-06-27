@@ -400,13 +400,18 @@ public class CodeGenWorkflowService {
         recordPersistence.save(record);
 
         if (success && !files.isEmpty()) {
-            Long appId = record.getAppId();
+            Long appId = appSyncHelper.resolveAppIdForSession(record.getSessionId(), record.getAppId());
             if (appId == null || appId <= 0) {
                 appId = appSyncHelper.resolveOrCreateApp(null, null, record.getPrompt());
-                record.setAppId(appId != null ? appId : CodeGenConstant.UNASSIGNED_APP_ID);
             }
             if (appId != null && appId > 0) {
                 appSyncHelper.syncCodeFilesToApp(appId, files);
+                appSyncHelper.bindSessionToApp(record.getSessionId(), appId);
+                record.setAppId(appId);
+                recordPersistence.save(record);
+            } else {
+                record.setAppId(CodeGenConstant.UNASSIGNED_APP_ID);
+                recordPersistence.save(record);
             }
             writeWorkflowCodegenMemory(record, state);
         }

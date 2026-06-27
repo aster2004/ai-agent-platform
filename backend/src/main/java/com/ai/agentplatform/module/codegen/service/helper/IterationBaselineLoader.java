@@ -1,9 +1,7 @@
 package com.ai.agentplatform.module.codegen.service.helper;
 
 import com.ai.agentplatform.module.chat.entity.ChatMessage;
-import com.ai.agentplatform.module.chat.entity.ChatSession;
 import com.ai.agentplatform.module.chat.repository.ChatMessageRepository;
-import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
 import com.ai.agentplatform.module.chat.util.CodeContentDetector;
 import com.ai.agentplatform.module.codegen.entity.CodeGenerate;
 import com.ai.agentplatform.module.codegen.mapper.CodeGenerateMapper;
@@ -35,9 +33,6 @@ public class IterationBaselineLoader {
     private CodeGenerateMapper codeGenerateMapper;
 
     @Resource
-    private ChatSessionRepository chatSessionRepository;
-
-    @Resource
     private ChatMessageRepository chatMessageRepository;
 
     /**
@@ -49,7 +44,7 @@ public class IterationBaselineLoader {
             return null;
         }
 
-        Long appId = resolveAppId(sessionId, requestAppId);
+        Long appId = appSyncHelper.resolveAppIdForSession(sessionId, requestAppId);
         if (appId != null && appId > 0) {
             String appCode = appSyncHelper.getAppCode(appId);
             if (isUsableBaseline(appCode)) {
@@ -73,21 +68,6 @@ public class IterationBaselineLoader {
         }
 
         log.debug("迭代基线未找到, sessionId={}", sessionId);
-        return null;
-    }
-
-    private Long resolveAppId(Long sessionId, Long requestAppId) {
-        if (requestAppId != null && requestAppId > 0) {
-            return requestAppId;
-        }
-        ChatSession session = chatSessionRepository.findById(sessionId).orElse(null);
-        if (session != null && session.getAppId() != null && session.getAppId() > 0) {
-            return session.getAppId();
-        }
-        CodeGenerate latest = codeGenerateMapper.selectLatestSuccessBySessionId(sessionId);
-        if (latest != null && latest.getAppId() != null && latest.getAppId() > 0) {
-            return latest.getAppId();
-        }
         return null;
     }
 

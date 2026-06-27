@@ -328,6 +328,14 @@ function collectLatestAiBatch(): string | null {
   return parts.length > 0 ? parts.join('\n\n') : null
 }
 
+/** 当前会话已绑定的应用 ID（同一会话多轮生成复用） */
+function resolveCodegenAppId(): number | undefined {
+  if (!activeSessionId.value) return undefined
+  const session = sessionList.value.find(s => s.id === activeSessionId.value)
+  const appId = session?.appId
+  return appId != null && appId > 0 ? appId : undefined
+}
+
 /** 是否有可预览的内容（含 HTML/Vue/多文件代码块） */
 const hasPreviewContent = computed(() => {
   const c = previewContent.value
@@ -685,6 +693,7 @@ async function runFastGenerate(sessionId: number, prompt: string, format: Genera
   const response = await generateCodeStream({
     prompt,
     sessionId,
+    appId: resolveCodegenAppId(),
     generateType: format,
   }, signal)
 
@@ -721,6 +730,7 @@ async function runFastGenerateSync(sessionId: number, prompt: string, format: Ge
   const res = await generateCode({
     prompt,
     sessionId,
+    appId: resolveCodegenAppId(),
     generateType: format,
   })
 
@@ -780,7 +790,11 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
   let cachedPrdContent = ''
   let cachedSummary = ''
 
-  const analyzeResponse = await analyzeWorkflowStream({ prompt, sessionId }, signal)
+  const analyzeResponse = await analyzeWorkflowStream({
+    prompt,
+    sessionId,
+    appId: resolveCodegenAppId(),
+  }, signal)
   await consumeWorkflowStream(analyzeResponse, (event) => {
     if (event.type === 'error') {
       throw new Error(event.message || '深度分析失败')

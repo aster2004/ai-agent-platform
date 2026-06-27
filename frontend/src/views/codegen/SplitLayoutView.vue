@@ -168,6 +168,14 @@ const previewContent = computed(() => {
   return ''
 })
 
+/** 当前会话已绑定的应用 ID */
+function resolveCodegenAppId(): number | undefined {
+  if (!activeSessionId.value) return undefined
+  const session = sessionList.value.find(s => s.id === activeSessionId.value)
+  const appId = session?.appId
+  return appId != null && appId > 0 ? appId : undefined
+}
+
 /** 是否有可预览的内容（含 HTML 代码块） */
 const hasPreviewContent = computed(() => {
   const c = previewContent.value
@@ -461,6 +469,7 @@ async function runFastGenerate(sessionId: number, prompt: string, format = 'HTML
   const response = await generateCodeStream({
     prompt,
     sessionId,
+    appId: resolveCodegenAppId(),
     generateType: format,
   }, signal)
 
@@ -494,6 +503,7 @@ async function runFastGenerateSync(sessionId: number, prompt: string, format = '
   const res = await generateCode({
     prompt,
     sessionId,
+    appId: resolveCodegenAppId(),
     generateType: format,
   })
 
@@ -521,6 +531,7 @@ async function runDeepAnalyze(sessionId: number, prompt: string, signal?: AbortS
   const response = await analyzeWorkflowStream({
     prompt,
     sessionId,
+    appId: resolveCodegenAppId(),
   }, signal)
 
   let receivedContent = ''

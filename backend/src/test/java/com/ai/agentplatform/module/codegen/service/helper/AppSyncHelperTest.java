@@ -1,5 +1,10 @@
 package com.ai.agentplatform.module.codegen.service.helper;
 
+import com.ai.agentplatform.module.chat.entity.ChatSession;
+import com.ai.agentplatform.module.chat.repository.ChatSessionRepository;
+import com.ai.agentplatform.module.codegen.constant.CodeGenConstant;
+import com.ai.agentplatform.module.codegen.entity.CodeGenerate;
+import com.ai.agentplatform.module.codegen.mapper.CodeGenerateMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -7,6 +12,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.client.RestTemplate;
+
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -20,6 +27,12 @@ class AppSyncHelperTest {
 
     @Mock
     private RestTemplate codeGenRestTemplate;
+
+    @Mock
+    private ChatSessionRepository chatSessionRepository;
+
+    @Mock
+    private CodeGenerateMapper codeGenerateMapper;
 
     @InjectMocks
     private AppSyncHelper appSyncHelper;
@@ -56,6 +69,30 @@ class AppSyncHelperTest {
     void shouldReuseExistingAppIdInResolveOrCreate() {
         assertEquals(5L, appSyncHelper.resolveOrCreateApp(5L, null, "prompt"));
         verify(codeGenRestTemplate, never()).postForObject(anyString(), any(), any());
+    }
+
+    @Test
+    void shouldResolveAppIdFromSessionBinding() {
+        ChatSession session = new ChatSession();
+        session.setId(10L);
+        session.setAppId(7L);
+        when(chatSessionRepository.findById(10L)).thenReturn(Optional.of(session));
+
+        assertEquals(7L, appSyncHelper.resolveAppIdForSession(10L, null));
+    }
+
+    @Test
+    void shouldReuseSessionAppOnPersistWithoutCreatingNew() {
+        ChatSession session = new ChatSession();
+        session.setId(10L);
+        session.setAppId(7L);
+        when(chatSessionRepository.findById(10L)).thenReturn(Optional.of(session));
+
+        Long appId = appSyncHelper.persistGeneratedApp(10L, null, null, "改颜色", "<html></html>");
+
+        assertEquals(7L, appId);
+        verify(codeGenRestTemplate, never()).postForObject(anyString(), any(), any());
+        verify(codeGenRestTemplate).put(eq("/api/app/{id}/code"), any(), eq(7L));
     }
 
     // ==================== syncCodeToApp ====================

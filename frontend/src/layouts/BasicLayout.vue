@@ -18,10 +18,6 @@
             <AppstoreOutlined />
             应用管理
           </a-menu-item>
-          <a-menu-item key="/app/deploy">
-            <CloudUploadOutlined />
-            部署分享
-          </a-menu-item>
           <a-menu-item key="/app/gallery">
             <StarOutlined />
             精选广场
@@ -75,7 +71,6 @@ import { message } from 'ant-design-vue'
 import {
   HomeOutlined,
   AppstoreOutlined,
-  CloudUploadOutlined,
   StarOutlined,
   UserOutlined,
   LogoutOutlined,
@@ -91,7 +86,7 @@ const selectedKeys = ref<string[]>([route.path])
 const displayName = computed(() => userStore.nickname || userStore.username || '用户')
 
 watch(() => route.path, (path) => {
-  selectedKeys.value = path.includes('/deploy') ? ['/app/deploy'] : [path]
+  selectedKeys.value = path.includes('/deploy') ? ['/app'] : [path]
 })
 
 function handleMenuClick({ key }: { key: string }) {
