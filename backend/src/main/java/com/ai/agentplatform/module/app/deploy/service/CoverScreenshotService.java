@@ -95,6 +95,15 @@ public class CoverScreenshotService {
             driver.manage().timeouts().scriptTimeout(Duration.ofSeconds(8));
             driver.get(url);
             Thread.sleep(2500);
+            var js = (org.openqa.selenium.JavascriptExecutor) driver;
+            Number pageWidth = (Number) js.executeScript(
+                    "return Math.max(document.documentElement.scrollWidth, document.body.scrollWidth, 1280)");
+            Number pageHeight = (Number) js.executeScript(
+                    "return Math.max(document.documentElement.scrollHeight, document.body.scrollHeight, 720)");
+            int width = Math.min(Math.max(pageWidth.intValue(), 320), 8192);
+            int height = Math.min(Math.max(pageHeight.intValue(), 200), 8192);
+            driver.manage().window().setSize(new org.openqa.selenium.Dimension(width, height));
+            Thread.sleep(800);
             byte[] screenshot = ((org.openqa.selenium.TakesScreenshot) driver).getScreenshotAs(org.openqa.selenium.OutputType.BYTES);
             Files.write(outputPath, screenshot);
         } catch (Exception e) {

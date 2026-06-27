@@ -6,6 +6,7 @@ import com.ai.agentplatform.module.app.deploy.dto.DeployRequest;
 import com.ai.agentplatform.module.app.deploy.service.AppDeployService;
 import com.ai.agentplatform.module.app.deploy.service.AppDownloadService;
 import com.ai.agentplatform.module.app.deploy.service.AppPreviewService;
+import com.ai.agentplatform.module.app.deploy.service.CoverImageStoreService;
 import com.ai.agentplatform.module.app.deploy.service.CoverScreenshotService;
 import com.ai.agentplatform.module.app.deploy.vo.DeployModeVO;
 import com.ai.agentplatform.module.app.deploy.vo.DeployResultVO;
@@ -20,6 +21,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -35,6 +37,7 @@ public class AppDeployController {
     private final AppPreviewService appPreviewService;
     private final AppDeployService appDeployService;
     private final AppDownloadService appDownloadService;
+    private final CoverImageStoreService coverImageStoreService;
     private final ObjectProvider<CoverScreenshotService> coverScreenshotServiceProvider;
 
     @Operation(summary = "获取应用预览地址", description = "将 app_code 写入本地 preview 目录并返回 iframe 可用 URL")
@@ -75,12 +78,17 @@ public class AppDeployController {
         return Result.success(appDeployService.getDeployInfo(id));
     }
 
-    @Operation(summary = "生成封面截图", description = "P2 功能，需 app.deploy.screenshot-enabled=true")
+    @Operation(summary = "生成封面截图", description = "上传 file 时截取当前预览界面；未上传时走 Selenium 首屏截图")
     @PostMapping("/{id}/cover")
-    public Result<?> captureCover(@PathVariable Long id) throws IOException, InterruptedException {
+    public Result<?> captureCover(@PathVariable Long id,
+                                  @RequestPart(value = "file", required = false) MultipartFile file)
+            throws IOException, InterruptedException {
+        if (file != null && !file.isEmpty()) {
+            return Result.success(coverImageStoreService.saveFromUpload(id, file));
+        }
         CoverScreenshotService coverService = coverScreenshotServiceProvider.getIfAvailable();
         if (coverService == null) {
-            throw new BusinessException("封面截图未启用，请在配置中设置 app.deploy.screenshot-enabled=true");
+            throw new BusinessException("请先在预览中切换到目标界面，再点击「生成封面」；或启用 app.deploy.screenshot-enabled 使用服务端截图");
         }
         return Result.success(coverService.captureCover(id));
     }

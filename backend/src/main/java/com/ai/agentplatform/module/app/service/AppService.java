@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -55,9 +54,7 @@ public class AppService {
 
     public Page<AppVO> listByUser(Long userId, int page, int size) {
         Page<App> appPage = appRepository.findByUserIdAndStatus(userId, STATUS_NORMAL, PageRequest.of(page, size));
-        Page<AppVO> result = enrichWithCreatorName(appPage);
-        result.getContent().forEach(this::scheduleCoverIfNeeded);
-        return result;
+        return enrichWithCreatorName(appPage);
     }
 
     public Page<AppVO> listAllForAdmin(int page, int size, Integer isFeatured) {
@@ -146,37 +143,23 @@ public class AppService {
                 .orElseThrow(() -> new BusinessException("应用不存在"));
         ensureAccessible(app);
         app.setAppCode(request.getCodeContent());
-        App saved = appRepository.save(app);
-        if (!StringUtils.hasText(saved.getCoverImg())) {
-            scheduleCoverGenerationAfterCommit(id);
-        }
-        return AppVO.from(saved);
+        AppVO vo = AppVO.from(appRepository.save(app));
+        scheduleCoverGenerationAfterCommit(id);
+        return vo;
     }
 
     private void scheduleCoverGenerationAfterCommit(Long appId) {
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            appCoverAutoGenerateService.scheduleIfMissing(appId);
-            return;
+        Runnable task = () -> appCoverAutoGenerateService.scheduleIfMissing(appId);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    task.run();
+                }
+            });
+        } else {
+            task.run();
         }
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                appCoverAutoGenerateService.scheduleIfMissing(appId);
-            }
-        });
-    }
-
-    private void scheduleCoverIfNeeded(AppVO vo) {
-        if (vo == null || vo.getId() == null) {
-            return;
-        }
-        if (StringUtils.hasText(vo.getCoverImg())) {
-            return;
-        }
-        if (!StringUtils.hasText(vo.getAppCode())) {
-            return;
-        }
-        appCoverAutoGenerateService.scheduleIfMissing(vo.getId());
     }
 
     @Transactional

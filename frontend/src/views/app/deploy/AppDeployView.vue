@@ -72,7 +72,7 @@
     </a-alert>
 
     <div class="content-row">
-      <div class="preview-wrapper">
+      <div ref="previewScalerRef" class="preview-wrapper">
         <div v-if="!hasPreviewed || !previewUrl" class="preview-empty">
           <a-empty description="请输入应用 ID，点击「刷新预览」">
             <template #image>
@@ -80,31 +80,35 @@
             </template>
           </a-empty>
         </div>
-        <iframe
-          v-else
-          :key="iframePreviewUrl"
-          :src="iframePreviewUrl"
-          class="preview-frame"
-          title="应用预览"
-        />
+        <div v-else class="preview-scaler-inner" :style="previewInnerStyle">
+          <iframe
+            ref="previewIframeRef"
+            :key="iframePreviewUrl"
+            :src="iframePreviewUrl"
+            class="preview-frame"
+            title="应用预览"
+            @load="handlePreviewFrameLoad"
+          />
+        </div>
       </div>
 
       <div v-if="hasPreviewed && previewUrl" class="cover-panel">
         <div class="cover-panel-header">
           <span class="cover-title">应用封面</span>
-          <a-tag color="blue">1280 × 720</a-tag>
+          <a-tag color="blue">整页截图</a-tag>
         </div>
-        <p class="cover-desc">自动截取预览页面首屏，写入 app.cover_img，供应用列表展示</p>
+        <p class="cover-desc">应用生成后会自动生成封面；也可点击「生成封面」手动截取当前预览页</p>
         <div class="cover-preview-box">
           <a-image
             v-if="coverImg"
             :src="fullCoverUrl"
             alt="应用封面"
             class="cover-image"
+            :preview="{ src: fullCoverUrl }"
           />
           <div v-else class="cover-placeholder">
             <CameraOutlined style="font-size: 32px; color: #bfbfbf" />
-            <span>点击「生成封面」截取预览页</span>
+            <span>{{ coverGenerating ? '封面生成中…' : '暂无封面，可点击「生成封面」截取预览页' }}</span>
           </div>
         </div>
         <p v-if="coverImg" class="cover-zoom-hint">点击封面可放大查看</p>
@@ -114,18 +118,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { CameraOutlined, EyeOutlined } from '@ant-design/icons-vue'
 import { resolveAssetUrl, toBackendAssetUrl } from '@/utils/assetUrl'
 import {
   captureCover,
+  captureCoverServer,
   deployApp,
   downloadAppSource,
   getAppPreview,
   getDeployModes,
 } from '@/api/appDeploy'
+import {
+  calcPreviewScale,
+  dataUrlToBlob,
+  PREVIEW_VIEWPORT,
+  requestPreviewCoverCapture,
+} from '@/utils/previewCapture'
 import type { DeployModeCode, DeployModeVO } from '@/types/appDeploy'
 
 const route = useRoute()
@@ -134,6 +145,7 @@ const appName = ref('')
 const previewUrl = ref('')
 const deployUrl = ref('')
 const coverImg = ref('')
+const coverGenerating = ref(false)
 const deployMode = ref<DeployModeCode>('local')
 const deployModeLabel = ref('')
 const deployModes = ref<DeployModeVO[]>([
@@ -148,6 +160,20 @@ const hasDeployed = ref(false)
 const previewLoading = ref(false)
 const deployLoading = ref(false)
 const coverLoading = ref(false)
+const previewScalerRef = ref<HTMLElement | null>(null)
+const previewIframeRef = ref<HTMLIFrameElement | null>(null)
+const previewScale = ref(1)
+
+let resizeObserver: ResizeObserver | null = null
+let coverPollTimer: ReturnType<typeof setInterval> | null = null
+
+const previewInnerStyle = computed(() => {
+  const scale = previewScale.value
+  return {
+    width: `${PREVIEW_VIEWPORT.width * scale}px`,
+    height: `${PREVIEW_VIEWPORT.height * scale}px`,
+  }
+})
 
 const iframePreviewUrl = computed(() => {
   if (!previewUrl.value) return ''
@@ -162,6 +188,45 @@ const fullCoverUrl = computed(() => {
   return `${toBackendAssetUrl(coverImg.value)}?v=${coverVersion.value}`
 })
 
+function applyCoverFromPreview(cover?: string) {
+  if (cover?.trim()) {
+    coverImg.value = resolveAssetUrl(cover)
+    coverVersion.value = Date.now()
+    coverGenerating.value = false
+    stopCoverPolling()
+  }
+}
+
+function stopCoverPolling() {
+  if (coverPollTimer) {
+    clearInterval(coverPollTimer)
+    coverPollTimer = null
+  }
+}
+
+function startCoverPolling() {
+  stopCoverPolling()
+  if (coverImg.value) {
+    return
+  }
+  coverGenerating.value = true
+  let attempts = 0
+  coverPollTimer = setInterval(async () => {
+    attempts += 1
+    if (attempts > 24 || !appId.value || coverImg.value) {
+      stopCoverPolling()
+      coverGenerating.value = false
+      return
+    }
+    try {
+      const res = await getAppPreview(appId.value)
+      applyCoverFromPreview(res.data.coverImg)
+    } catch {
+      // 静默轮询，避免干扰预览操作
+    }
+  }, 5000)
+}
+
 /** 仅刷新 iframe 预览，不触发部署 */
 async function loadPreview() {
   if (!appId.value) {
@@ -173,9 +238,12 @@ async function loadPreview() {
     const res = await getAppPreview(appId.value)
     appName.value = res.data.appName
     previewUrl.value = resolveAssetUrl(res.data.previewUrl)
-    coverImg.value = res.data.coverImg ? resolveAssetUrl(res.data.coverImg) : ''
     previewVersion.value = Date.now()
     hasPreviewed.value = true
+    applyCoverFromPreview(res.data.coverImg)
+    if (!coverImg.value) {
+      startCoverPolling()
+    }
     message.success('预览已刷新')
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '预览失败'
@@ -220,12 +288,29 @@ async function handleCaptureCover() {
     message.warning('请先刷新预览')
     return
   }
+  const iframe = previewIframeRef.value
+  if (!iframe) {
+    message.warning('预览未加载完成')
+    return
+  }
+
   coverLoading.value = true
   try {
-    const res = await captureCover(appId.value)
-    coverImg.value = resolveAssetUrl(res.data.coverImg)
-    coverVersion.value = Date.now()
-    message.success('封面截图已生成，已写入 cover_img')
+    let coverBlob: Blob
+    try {
+      const dataUrl = await requestPreviewCoverCapture(iframe)
+      coverBlob = await dataUrlToBlob(dataUrl)
+    } catch (captureError) {
+      message.warning('无法截取当前预览，将尝试服务端首屏截图')
+      const res = await captureCoverServer(appId.value)
+      applyCoverFromPreview(res.data.coverImg)
+      message.success('封面截图已生成（服务端首屏）')
+      return
+    }
+
+    const res = await captureCover(appId.value, coverBlob)
+    applyCoverFromPreview(res.data.coverImg)
+    message.success('已截取当前预览界面并写入封面')
   } catch (e: unknown) {
     message.error(e instanceof Error ? e.message : '封面截图失败')
   } finally {
@@ -233,12 +318,35 @@ async function handleCaptureCover() {
   }
 }
 
+function updatePreviewScale() {
+  const container = previewScalerRef.value
+  if (!container) return
+  previewScale.value = calcPreviewScale(container.clientWidth, container.clientHeight)
+}
+
+function handlePreviewFrameLoad() {
+  updatePreviewScale()
+}
+
+function setupPreviewResizeObserver() {
+  resizeObserver?.disconnect()
+  const container = previewScalerRef.value
+  if (!container || typeof ResizeObserver === 'undefined') {
+    updatePreviewScale()
+    return
+  }
+  resizeObserver = new ResizeObserver(() => updatePreviewScale())
+  resizeObserver.observe(container)
+}
+
 /** 切换应用 ID 时清空预览与部署展示，需用户手动点击按钮 */
 function resetAppState() {
+  stopCoverPolling()
   previewUrl.value = ''
   deployUrl.value = ''
   deployModeLabel.value = ''
   coverImg.value = ''
+  coverGenerating.value = false
   appName.value = ''
   hasPreviewed.value = false
   hasDeployed.value = false
@@ -294,8 +402,23 @@ function syncAppIdFromRoute() {
 onMounted(() => {
   loadDeployModes()
   syncAppIdFromRoute()
+  setupPreviewResizeObserver()
+  window.addEventListener('resize', updatePreviewScale)
+})
+onBeforeUnmount(() => {
+  stopCoverPolling()
+  resizeObserver?.disconnect()
+  window.removeEventListener('resize', updatePreviewScale)
 })
 watch(() => route.fullPath, syncAppIdFromRoute)
+watch(hasPreviewed, (visible) => {
+  if (visible) {
+    setTimeout(() => {
+      setupPreviewResizeObserver()
+      updatePreviewScale()
+    }, 0)
+  }
+})
 </script>
 
 <style scoped>
@@ -408,25 +531,40 @@ watch(() => route.fullPath, syncAppIdFromRoute)
 
 .preview-wrapper {
   flex: 1;
-  min-height: 520px;
+  min-height: calc(100vh - 320px);
+  height: calc(100vh - 320px);
   border: 1px solid #f0f0f0;
   border-radius: 8px;
   overflow: hidden;
   background: #fafafa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+
+.preview-scaler-inner {
+  overflow: hidden;
+  flex-shrink: 0;
+  line-height: 0;
 }
 
 .preview-frame {
-  width: 100%;
-  height: 520px;
+  width: 1280px;
+  height: 720px;
   border: none;
   background: #fff;
+  zoom: v-bind(previewScale);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
 }
 
 .preview-empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 520px;
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
 }
 
 .cover-panel {
@@ -460,21 +598,23 @@ watch(() => route.fullPath, syncAppIdFromRoute)
 .cover-preview-box {
   border: 1px dashed #d9d9d9;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: auto;
   background: #fafafa;
-  aspect-ratio: 16 / 9;
+  max-height: 420px;
+  min-height: 160px;
 }
 
 .cover-preview-box :deep(.ant-image) {
   display: block;
   width: 100%;
-  height: 100%;
 }
 
 .cover-preview-box :deep(.ant-image-img) {
+  display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
   cursor: zoom-in;
 }
 
@@ -488,7 +628,7 @@ watch(() => route.fullPath, syncAppIdFromRoute)
 .cover-image {
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
 }
 
 .cover-placeholder {
