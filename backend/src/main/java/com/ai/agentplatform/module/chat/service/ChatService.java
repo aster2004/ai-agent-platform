@@ -11,8 +11,12 @@ import com.ai.agentplatform.module.chat.vo.ChatHistoryVO;
 import com.ai.agentplatform.module.chat.vo.ChatMemoryMessageVO;
 import com.ai.agentplatform.module.chat.vo.ChatMessageVO;
 import com.ai.agentplatform.module.chat.vo.ChatSaveVO;
+import com.ai.agentplatform.module.chat.util.CodeContentDetector;
+import com.ai.agentplatform.module.chat.event.ChatMessageSavedEvent;
 import com.ai.agentplatform.module.chat.vo.ChatSessionVO;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -22,17 +26,21 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ChatService {
 
     private static final int TITLE_MAX_LEN = 20;
     private static final int PREVIEW_MAX_LEN = 50;
+    private static final int USER_MEMORY_MAX_LEN = 500;
+    private static final int AI_TEXT_MEMORY_MAX_LEN = 300;
     private static final int NOT_DELETED = 0;
 
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMemoryService chatMemoryService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public ChatSaveVO saveMessage(ChatSaveRequest request, Long userId) {
@@ -48,7 +56,8 @@ public class ChatService {
         message = chatMessageRepository.save(message);
 
         updateSessionAfterMessage(session, request.getMessageType(), request.getContent());
-        chatMemoryService.addMessage(session.getId(), request.getMessageType(), request.getContent());
+        syncMemory(session.getId(), request.getMessageType(), request.getContent());
+        eventPublisher.publishEvent(new ChatMessageSavedEvent(session.getId(), session.getMessageCount()));
 
         return new ChatSaveVO(session.getId(), message.getId());
     }
@@ -181,5 +190,20 @@ public class ChatService {
             return null;
         }
         return text.length() <= maxLen ? text : text.substring(0, maxLen);
+    }
+
+    /**
+     * Redis 记忆双轨：user 原文；ai 代码/产物跳过（由 codegen 完成后写语义摘要）。
+     */
+    private void syncMemory(Long sessionId, String messageType, String content) {
+        if ("user".equals(messageType)) {
+            chatMemoryService.addMessage(sessionId, messageType, truncate(content, USER_MEMORY_MAX_LEN));
+            return;
+        }
+        if (CodeContentDetector.isCodeOrArtifactContent(content)) {
+            log.debug("skip Redis for ai code/artifact, sessionId={}", sessionId);
+            return;
+        }
+        chatMemoryService.addMessage(sessionId, messageType, truncate(content, AI_TEXT_MEMORY_MAX_LEN));
     }
 }

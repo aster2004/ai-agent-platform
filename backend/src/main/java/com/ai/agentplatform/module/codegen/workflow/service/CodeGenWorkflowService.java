@@ -2,7 +2,13 @@ package com.ai.agentplatform.module.codegen.workflow.service;
 
 import com.ai.agentplatform.common.util.SecurityUtils;
 import com.ai.agentplatform.module.codegen.constant.CodeGenConstant;
+import com.ai.agentplatform.module.codegen.dto.CodeGenRequest;
 import com.ai.agentplatform.module.codegen.service.helper.AppSyncHelper;
+import com.ai.agentplatform.module.codegen.service.helper.ChatHistoryHelper;
+import com.ai.agentplatform.module.codegen.service.helper.ChatMemoryContext;
+import com.ai.agentplatform.module.codegen.service.helper.CodegenMemoryService;
+import com.ai.agentplatform.module.codegen.service.helper.SessionSummaryService;
+import com.ai.agentplatform.module.codegen.service.tool.PromptBuilder;
 import com.ai.agentplatform.module.codegen.support.CodeGenRequestContext;
 import com.ai.agentplatform.module.codegen.workflow.dto.ContinueWorkflowRequest;
 import com.ai.agentplatform.module.codegen.workflow.dto.UpdatePrdRequest;
@@ -64,6 +70,10 @@ public class CodeGenWorkflowService {
     private final CodeGenerateRepository codeGenerateRepository;
     private final WorkflowRecordPersistence recordPersistence;
     private final AppSyncHelper appSyncHelper;
+    private final ChatHistoryHelper chatHelper;
+    private final PromptBuilder promptBuilder;
+    private final CodegenMemoryService codegenMemoryService;
+    private final SessionSummaryService sessionSummaryService;
     private final ObjectMapper objectMapper;
 
     @Value("${langchain4j.open-ai.chat-model.model-name:gpt-4o-mini}")
@@ -113,7 +123,7 @@ public class CodeGenWorkflowService {
     public WorkflowResultVO execute(WorkflowRequest request) {
         long start = System.currentTimeMillis();
         CodeGenerate record = createRecord(request);
-        WorkflowState finalState = runGraph(fullGraph, initState(request.getPrompt()), step -> { });
+        WorkflowState finalState = runGraph(fullGraph, initState(buildWorkflowPrompt(request)), step -> { });
         return finalizeRecord(record, finalState, start);
     }
 
@@ -157,7 +167,7 @@ public class CodeGenWorkflowService {
         Thread.startVirtualThread(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             try {
                 sendTask(emitter, tasks, "skill_call", "技能调用 deepresearch", "深度分析用户需求");
-                WorkflowState finalState = runGraph(analyzeGraph, initState(request.getPrompt()), step -> {
+                WorkflowState finalState = runGraph(analyzeGraph, initState(buildWorkflowPrompt(request)), step -> {
                     sendStepEvent(emitter, step);
                     if (step == WorkflowStep.PRD) {
                         try {
@@ -178,6 +188,10 @@ public class CodeGenWorkflowService {
                     throw new IllegalStateException("PRD 生成结果为空，请重试");
                 }
                 persistAwaitState(record, pending, (int) (System.currentTimeMillis() - start));
+
+                codegenMemoryService.rememberWorkflowAnalysisAsync(
+                        request.getSessionId(), request.getPrompt(), finalState.summary(), null);
+                sessionSummaryService.refreshAfterWorkflowAnalysisAsync(request.getSessionId());
 
                 WorkflowResultVO result = WorkflowResultVO.builder()
                         .generateId(record.getId())
@@ -215,7 +229,8 @@ public class CodeGenWorkflowService {
                 PendingState pending = resolvePendingState(record, fallbackPrd, fallbackSummary);
 
                 Map<String, Object> init = new HashMap<>();
-                init.put(WorkflowState.PROMPT_KEY, record.getPrompt());
+                init.put(WorkflowState.PROMPT_KEY, buildWorkflowPrompt(
+                        record.getPrompt(), record.getSessionId(), record.getAppId()));
                 init.put(WorkflowState.SUMMARY_KEY, pending.getSummary());
                 init.put(WorkflowState.PRD_KEY, pending.getPrd());
                 init.put(WorkflowState.CURRENT_STEP_KEY, WorkflowStep.STRATEGY.getCode());
@@ -250,7 +265,7 @@ public class CodeGenWorkflowService {
 
         Thread.startVirtualThread(() -> CodeGenRequestContext.runWithAuthorization(authorization, () -> {
             try {
-                WorkflowState finalState = runGraph(graph, initState(request.getPrompt()), step -> sendStepEvent(emitter, step));
+                WorkflowState finalState = runGraph(graph, initState(buildWorkflowPrompt(request)), step -> sendStepEvent(emitter, step));
                 if (finalize) {
                     WorkflowResultVO result = finalizeRecord(record, finalState, start);
                     result.setPrdContent(finalState.prd());
@@ -292,6 +307,26 @@ public class CodeGenWorkflowService {
         init.put(WorkflowState.PROMPT_KEY, prompt);
         init.put(WorkflowState.CURRENT_STEP_KEY, WorkflowStep.ANALYZE.getCode());
         return init;
+    }
+
+    /** 与 quick codegen 一致：从 Redis 加载 session 多轮记忆并拼入 Prompt */
+    private String buildWorkflowPrompt(WorkflowRequest request) {
+        return buildWorkflowPrompt(request.getPrompt(), request.getSessionId(), request.getAppId());
+    }
+
+    private String buildWorkflowPrompt(String userPrompt, Long sessionId, Long appId) {
+        ChatMemoryContext memoryContext = chatHelper.loadMemoryContext(sessionId);
+        log.debug("工作流加载会话 {} 记忆: 概要={}, 近期{}条",
+                sessionId,
+                memoryContext.hasSessionSummary() ? "有" : "无",
+                memoryContext.recentDialogue().size());
+
+        CodeGenRequest codeGenRequest = new CodeGenRequest();
+        codeGenRequest.setPrompt(userPrompt);
+        codeGenRequest.setAppId(appId != null ? appId : 1L);
+        codeGenRequest.setSessionId(sessionId);
+        codeGenRequest.setGenerateType("WORKFLOW");
+        return promptBuilder.buildPrompt(codeGenRequest, memoryContext);
     }
 
     private WorkflowState runGraph(CompiledGraph<WorkflowState> graph, Map<String, Object> init,
@@ -373,6 +408,7 @@ public class CodeGenWorkflowService {
             if (appId != null && appId > 0) {
                 appSyncHelper.syncCodeFilesToApp(appId, files);
             }
+            writeWorkflowCodegenMemory(record, state);
         }
 
         return WorkflowResultVO.builder()
@@ -499,6 +535,22 @@ public class CodeGenWorkflowService {
             return "VUE";
         }
         return strategy != null && !strategy.isBlank() ? strategy : "WORKFLOW";
+    }
+
+    private void writeWorkflowCodegenMemory(CodeGenerate record, WorkflowState state) {
+        if (record.getSessionId() == null) {
+            return;
+        }
+        try {
+            String codeContent = objectMapper.writeValueAsString(state.codeFiles());
+            codegenMemoryService.rememberCodegenResultAsync(
+                    record.getSessionId(),
+                    record.getPrompt(),
+                    resolveGenerateType(state.strategy()),
+                    codeContent);
+        } catch (JsonProcessingException e) {
+            log.warn("工作流写生成记忆失败 sessionId={}", record.getSessionId(), e);
+        }
     }
 
     private void sendTask(SseEmitter emitter, List<WorkflowTaskVO> tasks,
