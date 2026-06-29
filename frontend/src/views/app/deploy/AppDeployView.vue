@@ -97,7 +97,7 @@
           <span class="cover-title">应用封面</span>
           <a-tag color="blue">整页截图</a-tag>
         </div>
-        <p class="cover-desc">应用生成后会自动生成封面；也可点击「生成封面」手动截取当前预览页</p>
+        <p class="cover-desc">请先点击应用内「查询」等按钮展示目标界面，再点「生成封面」；更新后端后需先「刷新预览」</p>
         <div class="cover-preview-box">
           <a-image
             v-if="coverImg"
