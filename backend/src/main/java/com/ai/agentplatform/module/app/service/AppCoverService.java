@@ -50,9 +50,25 @@ public class AppCoverService {
             try (InputStream inputStream = file.getInputStream()) {
                 Files.copy(inputStream, target, StandardCopyOption.REPLACE_EXISTING);
             }
-            return uploadProperties.getUrlPrefix() + "/cover/" + filename;
+            return "/api/app/cover/" + filename;
         } catch (IOException e) {
             throw new BusinessException("封面保存失败");
+        }
+    }
+
+    public byte[] getCover(String filename) {
+        if (!StringUtils.hasText(filename) || filename.contains("..") || filename.contains("/")) {
+            return null;
+        }
+        Path coverDir = Paths.get(uploadProperties.getPath(), "cover").toAbsolutePath().normalize();
+        Path filePath = coverDir.resolve(filename).normalize();
+        if (!filePath.startsWith(coverDir) || !Files.isRegularFile(filePath)) {
+            return null;
+        }
+        try {
+            return Files.readAllBytes(filePath);
+        } catch (IOException e) {
+            return null;
         }
     }
 

@@ -15,6 +15,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -97,6 +99,32 @@ public class AppController {
     @PostMapping("/upload/cover")
     public Result<String> uploadCover(@RequestParam("file") MultipartFile file) {
         return Result.success(appCoverService.saveCover(file));
+    }
+
+    @Operation(summary = "获取应用封面")
+    @GetMapping("/cover/{filename}")
+    public ResponseEntity<byte[]> getCover(@PathVariable String filename) {
+        byte[] content = appCoverService.getCover(filename);
+        if (content == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(resolveCoverContentType(filename)))
+                .body(content);
+    }
+
+    private String resolveCoverContentType(String filename) {
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".png")) {
+            return MediaType.IMAGE_PNG_VALUE;
+        }
+        if (lower.endsWith(".gif")) {
+            return MediaType.IMAGE_GIF_VALUE;
+        }
+        if (lower.endsWith(".webp")) {
+            return "image/webp";
+        }
+        return MediaType.IMAGE_JPEG_VALUE;
     }
 
     @Operation(summary = "更新应用代码")

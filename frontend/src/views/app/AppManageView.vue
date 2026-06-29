@@ -125,10 +125,9 @@
           v-model:current="pagination.current"
           v-model:page-size="pagination.pageSize"
           :total="pagination.total"
-          :show-size-changer="true"
+          :show-size-changer="false"
           :show-total="(total: number) => `共 ${total} 条`"
           @change="handleCardPageChange"
-          @show-size-change="handleCardPageChange"
         />
       </div>
     </template>
@@ -161,21 +160,32 @@
         </a-form-item>
         <a-form-item label="应用封面">
           <div class="cover-upload">
+            <div v-if="formState.coverImg && !coverPreviewBroken" class="cover-preview-box">
+              <img
+                :src="coverPreviewSrc"
+                alt="封面预览"
+                class="cover-preview"
+                @error="coverPreviewBroken = true"
+              />
+              <a-upload
+                class="cover-reupload"
+                :show-upload-list="false"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                :before-upload="beforeCoverUpload"
+                :custom-request="handleCoverUpload"
+              >
+                <div class="cover-reupload-mask">更换封面</div>
+              </a-upload>
+            </div>
             <a-upload
+              v-else
               list-type="picture-card"
               :show-upload-list="false"
               accept="image/jpeg,image/png,image/webp,image/gif"
               :before-upload="beforeCoverUpload"
               :custom-request="handleCoverUpload"
             >
-              <img
-                v-if="formState.coverImg && !coverPreviewBroken"
-                :src="coverPreviewSrc"
-                alt="封面预览"
-                class="cover-preview"
-                @error="coverPreviewBroken = true"
-              />
-              <div v-else class="cover-upload-placeholder">
+              <div class="cover-upload-placeholder">
                 <LoadingOutlined v-if="coverUploading" />
                 <PlusOutlined v-else />
                 <div class="cover-upload-text">{{ coverUploading ? '上传中' : '上传封面' }}</div>
@@ -264,6 +274,7 @@ const featuredLoadingId = ref<number | null>(null)
 const featuredFilter = ref<number | undefined>(undefined)
 const coverUploading = ref(false)
 const coverPreviewBroken = ref(false)
+const coverPreviewLocal = ref('')
 const appList = ref<AppVO[]>([])
 let coverPollTimer: ReturnType<typeof setInterval> | null = null
 
@@ -274,22 +285,38 @@ const formState = reactive({
 })
 
 const coverPreviewSrc = computed(() => {
+  if (coverPreviewLocal.value) return coverPreviewLocal.value
   const url = resolveCoverUrl(formState.coverImg)
   if (!url) return ''
   const sep = url.includes('?') ? '&' : '?'
   return `${url}${sep}v=${encodeURIComponent(formState.coverImg)}`
 })
 
+function revokeCoverPreviewLocal() {
+  if (coverPreviewLocal.value.startsWith('blob:')) {
+    URL.revokeObjectURL(coverPreviewLocal.value)
+  }
+  coverPreviewLocal.value = ''
+}
+
+watch(
+  () => formState.coverImg,
+  () => {
+    coverPreviewBroken.value = false
+    revokeCoverPreviewLocal()
+  },
+)
+
 const pagination = reactive({
   current: 1,
-  pageSize: 10,
+  pageSize: 8,
   total: 0,
-  showSizeChanger: true,
+  showSizeChanger: false,
   showTotal: (total: number) => `共 ${total} 条`,
 })
 
 const columns = computed(() => {
-  const base: Array<Record<string, unknown>> = [
+  const base = [
     { title: '应用名称', dataIndex: 'appName', key: 'appName', ellipsis: true },
   ]
   if (isAdmin.value) {
@@ -409,7 +436,7 @@ async function loadList(options: { silent?: boolean } = {}) {
 
 function handleTableChange(pag: TablePaginationConfig) {
   pagination.current = pag.current || 1
-  pagination.pageSize = pag.pageSize || 10
+  pagination.pageSize = pag.pageSize || 8
   loadList()
 }
 
@@ -423,6 +450,7 @@ function resetForm() {
   formState.description = ''
   formState.coverImg = ''
   coverPreviewBroken.value = false
+  revokeCoverPreviewLocal()
 }
 
 function openEditModal(record: AppVO) {
@@ -450,13 +478,16 @@ const beforeCoverUpload: UploadProps['beforeUpload'] = (file) => {
 const handleCoverUpload: UploadProps['customRequest'] = async (options) => {
   const file = options.file as File
   coverUploading.value = true
+  coverPreviewBroken.value = false
+  revokeCoverPreviewLocal()
+  coverPreviewLocal.value = URL.createObjectURL(file)
   try {
     const res = await uploadAppCover(file)
     formState.coverImg = res.data
-    coverPreviewBroken.value = false
     message.success('封面上传成功')
     options.onSuccess?.(res.data)
   } catch (e: any) {
+    revokeCoverPreviewLocal()
     message.error(e.message || '封面上传失败')
     options.onError?.(e)
   } finally {
@@ -467,6 +498,7 @@ const handleCoverUpload: UploadProps['customRequest'] = async (options) => {
 function clearCover() {
   formState.coverImg = ''
   coverPreviewBroken.value = false
+  revokeCoverPreviewLocal()
 }
 
 function closeModal() {
@@ -546,6 +578,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopCoverPolling()
+  revokeCoverPreviewLocal()
 })
 </script>
 
@@ -578,10 +611,50 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.cover-preview-box {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  overflow: hidden;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+}
+
 .cover-preview {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+}
+
+.cover-reupload {
+  position: absolute;
+  inset: 0;
+}
+
+.cover-reupload :deep(.ant-upload) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+.cover-reupload-mask {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: #fff;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.cover-preview-box:hover .cover-reupload-mask {
+  opacity: 1;
 }
 
 .cover-upload-placeholder {
